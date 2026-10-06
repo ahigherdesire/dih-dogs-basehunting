@@ -6,11 +6,11 @@ import java.util.Set;
 import com.autism.seedcracker.SeedcrackerAddon;
 import com.autism.seedcracker.render.BlockEspRenderer;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.ColorSetting;
-import autismclient.api.module.IntSetting;
-import autismclient.modules.Module;
-import autismclient.util.AutismClientMessaging;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.ColorSetting;
+import dihclient.api.module.IntSetting;
+import dihclient.modules.Module;
+import dihclient.util.DihClientMessaging;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.player.Player;
@@ -86,7 +86,7 @@ public final class EyeFinderModule extends Module {
                 if (pos.equals(prev)) {
                     int t = stareTicks.merge(name, 1, Integer::sum);
                     if (t == 100) { // 5s
-                        AutismClientMessaging.sendPrefixed("§d[EyeFinder] §f" + name
+                        DihClientMessaging.sendPrefixed("§d[EyeFinder] §f" + name
                             + " has stared at " + pos.getX() + " " + pos.getY() + " " + pos.getZ()
                             + " for 5s.");
                     }

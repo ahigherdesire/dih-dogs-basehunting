@@ -4,7 +4,7 @@ import java.util.Collection;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-import autismclient.modules.Module;
+import dihclient.modules.Module;
 
 /**
  * Obfuscation-proof module registry for THIS addon's modules. The client's ModuleRegistry util

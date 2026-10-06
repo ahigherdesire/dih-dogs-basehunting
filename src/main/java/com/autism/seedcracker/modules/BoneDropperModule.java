@@ -2,9 +2,9 @@ package com.autism.seedcracker.modules;
 
 import com.autism.seedcracker.SeedcrackerAddon;
 
-import autismclient.api.module.IntSetting;
-import autismclient.api.module.StringSetting;
-import autismclient.modules.Module;
+import dihclient.api.module.IntSetting;
+import dihclient.api.module.StringSetting;
+import dihclient.modules.Module;
 import com.autism.seedcracker.compat.ClientInventory;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.item.Item;
@@ -62,7 +62,7 @@ public final class BoneDropperModule extends Module {
                 finishQueue(mc); // held item changed under us: stop, restore
                 return;
             }
-            mc.player.drop(false);
+            com.autism.seedcracker.compat.McCompat.dropSelected(mc, false);
             dropGapTicks = 1 + (int) (Math.random() * 2); // 1-2 ticks between single drops
             if (--dropsQueued <= 0) finishQueue(mc);
             return;

@@ -8,11 +8,11 @@ import com.autism.seedcracker.SeedcrackerAddon;
 import com.autism.seedcracker.finder.ChunkFlagRenderer;
 import com.autism.seedcracker.finder.ChunkScanHelper;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.ColorSetting;
-import autismclient.api.module.IntSetting;
-import autismclient.modules.Module;
-import autismclient.util.AutismClientMessaging;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.ColorSetting;
+import dihclient.api.module.IntSetting;
+import dihclient.modules.Module;
+import dihclient.util.DihClientMessaging;
 import com.autism.seedcracker.compat.ClientNotify;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
@@ -48,12 +48,12 @@ public final class ActivityFinderModule extends Module {
         REDSTONE
     }
 
-    private final autismclient.api.module.EnumSetting<Mode> mode = add(
-        new autismclient.api.module.EnumSetting<>("mode", "Mode", Mode.STORAGE, Mode.values())
+    private final dihclient.api.module.EnumSetting<Mode> mode = add(
+        new dihclient.api.module.EnumSetting<>("mode", "Mode", Mode.STORAGE, Mode.values())
         .description("ALL = any block entity. STORAGE = chests/shulkers (loot). UTILITY = furnaces/brewing (lived-in). REDSTONE = hoppers/dispensers (farms/vaults).")
         .group("General"));
-    private final autismclient.api.module.EnumSetting<com.autism.seedcracker.finder.FinderSensitivity> sensitivity = add(
-        new autismclient.api.module.EnumSetting<>("sensitivity", "Sensitivity",
+    private final dihclient.api.module.EnumSetting<com.autism.seedcracker.finder.FinderSensitivity> sensitivity = add(
+        new dihclient.api.module.EnumSetting<>("sensitivity", "Sensitivity",
             com.autism.seedcracker.finder.FinderSensitivity.MEDIUM, com.autism.seedcracker.finder.FinderSensitivity.values())
         .description("HIGH/MEDIUM = one block entity below Y flags. LOW = need 2+ (a single lone chest can be a dungeon).")
         .group("General"));
@@ -191,7 +191,7 @@ public final class ActivityFinderModule extends Module {
         if (!notify.get()) return;
         String msg = "Activity detected in chunk " + pos.x() + ", " + pos.z() + " (Y<=" + yLevel.get() + ")";
         ClientNotify.warning(msg);
-        AutismClientMessaging.sendPrefixed("§e[ActivityFinder] §f" + msg);
+        DihClientMessaging.sendPrefixed("§e[ActivityFinder] §f" + msg);
         Minecraft mc = Minecraft.getInstance();
         if (mc.player != null) {
             mc.player.playSound(SoundEvents.EXPERIENCE_ORB_PICKUP, 1.0f, 1.0f);

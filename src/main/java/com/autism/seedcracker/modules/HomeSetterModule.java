@@ -2,11 +2,11 @@ package com.autism.seedcracker.modules;
 
 import com.autism.seedcracker.SeedcrackerAddon;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.IntSetting;
-import autismclient.api.module.StringSetting;
-import autismclient.modules.Module;
-import autismclient.util.AutismClientMessaging;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.IntSetting;
+import dihclient.api.module.StringSetting;
+import dihclient.modules.Module;
+import dihclient.util.DihClientMessaging;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientPacketListener;
 
@@ -49,7 +49,7 @@ public final class HomeSetterModule extends Module {
         if (running) return;
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null || mc.level == null || mc.getConnection() == null) {
-            AutismClientMessaging.sendPrefixed("§c[Home Setter] Join a world first.");
+            DihClientMessaging.sendPrefixed("§c[Home Setter] Join a world first.");
             setEnabledSilently(false);
             return;
         }
@@ -60,7 +60,7 @@ public final class HomeSetterModule extends Module {
         String setCmd = buildCommand(setCommand.get(), homeSlot);
         String delCmd = buildCommand(deleteCommand.get(), homeSlot);
 
-        AutismClientMessaging.sendPrefixed("§7[Home Setter] Setting home §f" + homeSlot + " §7at your position...");
+        DihClientMessaging.sendPrefixed("§7[Home Setter] Setting home §f" + homeSlot + " §7at your position...");
 
         // Run the delete on the client thread, then set after a delay off-thread.
         if (doDelete) {
@@ -74,7 +74,7 @@ public final class HomeSetterModule extends Module {
             }
             mc.execute(() -> {
                 sendCommand(mc, setCmd);
-                AutismClientMessaging.sendPrefixed("§a[Home Setter] Home §f" + homeSlot + " §aset.");
+                DihClientMessaging.sendPrefixed("§a[Home Setter] Home §f" + homeSlot + " §aset.");
                 running = false;
                 setEnabledSilently(false);
             });

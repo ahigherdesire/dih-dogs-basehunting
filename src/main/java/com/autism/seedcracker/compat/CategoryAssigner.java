@@ -2,8 +2,8 @@ package com.autism.seedcracker.compat;
 
 import java.lang.reflect.Method;
 
-import autismclient.api.AutismAddons;
-import autismclient.modules.Module;
+import dihclient.api.DihAddons;
+import dihclient.modules.Module;
 
 /**
  * Obfuscation-proof per-tab category assignment. The category TYPE is ModuleCategory in the
@@ -17,7 +17,7 @@ public final class CategoryAssigner {
     private CategoryAssigner() {}
 
     private static volatile boolean probed = false;
-    private static Method registerCategoryMethod; // AutismAddons$Modules.registerCategory(String)
+    private static Method registerCategoryMethod; // DihAddons$Modules.registerCategory(String)
     private static Method assignCategoryMethod;   // Module.assignCategory(<categoryType>)
     private static boolean usable = false;
 
@@ -27,7 +27,7 @@ public final class CategoryAssigner {
         if (module == null || tabLabel == null || tabLabel.isBlank()) return;
         if (!probe()) return;
         try {
-            Object category = registerCategoryMethod.invoke(AutismAddons.modules(), tabLabel);
+            Object category = registerCategoryMethod.invoke(DihAddons.modules(), tabLabel);
             if (category != null) {
                 assignCategoryMethod.invoke(module, category);
             }
@@ -45,8 +45,8 @@ public final class CategoryAssigner {
         if (probed) return usable;
         probed = true;
         try {
-            // 1) The category factory: AutismAddons.modules().registerCategory(String) -> <categoryType>
-            Class<?> modulesClass = AutismAddons.modules().getClass();
+            // 1) The category factory: DihAddons.modules().registerCategory(String) -> <categoryType>
+            Class<?> modulesClass = DihAddons.modules().getClass();
             Method regCat = null;
             for (Method m : modulesClass.getMethods()) {
                 if (m.getName().equals("registerCategory") && m.getParameterCount() == 1

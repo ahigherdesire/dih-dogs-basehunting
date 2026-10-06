@@ -6,4 +6,4 @@ pluginManagement {
     }
 }
 
-rootProject.name = "autism-seedcracker"
+rootProject.name = "dogs-basehunting"

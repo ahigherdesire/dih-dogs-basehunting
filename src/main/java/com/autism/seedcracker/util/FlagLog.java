@@ -70,10 +70,10 @@ public final class FlagLog {
         try {
             Path dir;
             try {
-                dir = autismclient.AutismClientAddon.FOLDER.toPath();
+                dir = dihclient.DihClientAddon.FOLDER.toPath();
             } catch (Throwable t) {
                 // Fallback: Fabric config dir + autism.
-                dir = net.fabricmc.loader.api.FabricLoader.getInstance().getConfigDir().resolve("autism");
+                dir = net.fabricmc.loader.api.FabricLoader.getInstance().getConfigDir().resolve("dih");
             }
             Files.createDirectories(dir);
             file = dir.resolve("flag-log.txt");

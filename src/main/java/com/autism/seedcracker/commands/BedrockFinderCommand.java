@@ -3,8 +3,8 @@ package com.autism.seedcracker.commands;
 import com.autism.seedcracker.bedrock.BedrockFinderScreen;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 
-import autismclient.commands.AutismCommandSource;
-import autismclient.commands.Command;
+import dihclient.commands.DihCommandSource;
+import dihclient.commands.Command;
 import net.minecraft.client.Minecraft;
 
 /** Opens the Bedrock Finder pattern-grid GUI. Usage: .bfinder */
@@ -14,7 +14,7 @@ public final class BedrockFinderCommand extends Command {
     }
 
     @Override
-    public void build(LiteralArgumentBuilder<AutismCommandSource> root) {
+    public void build(LiteralArgumentBuilder<DihCommandSource> root) {
         root.executes(ctx -> {
             Minecraft mc = Minecraft.getInstance();
             mc.execute(() -> mc.gui.setScreen(new BedrockFinderScreen(mc.gui.screen())));

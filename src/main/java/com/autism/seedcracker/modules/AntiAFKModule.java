@@ -4,9 +4,9 @@ import java.util.Random;
 
 import com.autism.seedcracker.SeedcrackerAddon;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.IntSetting;
-import autismclient.modules.Module;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.IntSetting;
+import dihclient.modules.Module;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.InteractionHand;
 
@@ -98,7 +98,7 @@ public final class AntiAFKModule extends Module {
         }
 
         if (swing.get() && random.nextInt(99) == 0) {
-            mc.player.swing(InteractionHand.MAIN_HAND);
+            com.autism.seedcracker.compat.McCompat.swing(mc.player, InteractionHand.MAIN_HAND);
         }
 
         if (sneak.get()) {

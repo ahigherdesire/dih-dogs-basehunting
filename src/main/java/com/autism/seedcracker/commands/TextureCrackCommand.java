@@ -11,9 +11,9 @@ import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.builder.RequiredArgumentBuilder;
 
-import autismclient.commands.AutismCommandSource;
-import autismclient.commands.Command;
-import autismclient.util.AutismClientMessaging;
+import dihclient.commands.DihCommandSource;
+import dihclient.commands.Command;
+import dihclient.util.DihClientMessaging;
 import net.minecraft.client.Minecraft;
 
 /**
@@ -58,42 +58,42 @@ public final class TextureCrackCommand extends Command {
     }
 
     @Override
-    public void build(LiteralArgumentBuilder<AutismCommandSource> root) {
+    public void build(LiteralArgumentBuilder<DihCommandSource> root) {
         root.executes(ctx -> {
             help();
             return SUCCESS;
         });
 
-        root.then(LiteralArgumentBuilder.<AutismCommandSource>literal("image")
-            .then(RequiredArgumentBuilder.<AutismCommandSource, String>argument("args", StringArgumentType.greedyString())
+        root.then(LiteralArgumentBuilder.<DihCommandSource>literal("image")
+            .then(RequiredArgumentBuilder.<DihCommandSource, String>argument("args", StringArgumentType.greedyString())
                 .executes(ctx -> {
                     openImage(StringArgumentType.getString(ctx, "args"));
                     return SUCCESS;
                 })));
 
-        root.then(LiteralArgumentBuilder.<AutismCommandSource>literal("grid")
-            .then(RequiredArgumentBuilder.<AutismCommandSource, String>argument("rows", StringArgumentType.greedyString())
+        root.then(LiteralArgumentBuilder.<DihCommandSource>literal("grid")
+            .then(RequiredArgumentBuilder.<DihCommandSource, String>argument("rows", StringArgumentType.greedyString())
                 .executes(ctx -> {
                     parseGrid(StringArgumentType.getString(ctx, "rows"));
                     return SUCCESS;
                 })));
 
-        root.then(LiteralArgumentBuilder.<AutismCommandSource>literal("block")
-            .then(RequiredArgumentBuilder.<AutismCommandSource, String>argument("name", StringArgumentType.word())
+        root.then(LiteralArgumentBuilder.<DihCommandSource>literal("block")
+            .then(RequiredArgumentBuilder.<DihCommandSource, String>argument("name", StringArgumentType.word())
                 .executes(ctx -> {
                     setBlock(StringArgumentType.getString(ctx, "name"));
                     return SUCCESS;
                 })));
 
-        root.then(LiteralArgumentBuilder.<AutismCommandSource>literal("y")
-            .then(RequiredArgumentBuilder.<AutismCommandSource, Integer>argument("level", IntegerArgumentType.integer(-64, 320))
+        root.then(LiteralArgumentBuilder.<DihCommandSource>literal("y")
+            .then(RequiredArgumentBuilder.<DihCommandSource, Integer>argument("level", IntegerArgumentType.integer(-64, 320))
                 .executes(ctx -> {
                     obsY = IntegerArgumentType.getInteger(ctx, "level");
                     yRange = 0;
                     msg("Y = " + obsY + " (exact)");
                     return SUCCESS;
                 })
-                .then(RequiredArgumentBuilder.<AutismCommandSource, Integer>argument("range", IntegerArgumentType.integer(0, 128))
+                .then(RequiredArgumentBuilder.<DihCommandSource, Integer>argument("range", IntegerArgumentType.integer(0, 128))
                     .executes(ctx -> {
                         obsY = IntegerArgumentType.getInteger(ctx, "level");
                         yRange = IntegerArgumentType.getInteger(ctx, "range");
@@ -101,9 +101,9 @@ public final class TextureCrackCommand extends Command {
                         return SUCCESS;
                     }))));
 
-        root.then(LiteralArgumentBuilder.<AutismCommandSource>literal("center")
-            .then(RequiredArgumentBuilder.<AutismCommandSource, Integer>argument("x", IntegerArgumentType.integer())
-                .then(RequiredArgumentBuilder.<AutismCommandSource, Integer>argument("z", IntegerArgumentType.integer())
+        root.then(LiteralArgumentBuilder.<DihCommandSource>literal("center")
+            .then(RequiredArgumentBuilder.<DihCommandSource, Integer>argument("x", IntegerArgumentType.integer())
+                .then(RequiredArgumentBuilder.<DihCommandSource, Integer>argument("z", IntegerArgumentType.integer())
                     .executes(ctx -> {
                         centerX = IntegerArgumentType.getInteger(ctx, "x");
                         centerZ = IntegerArgumentType.getInteger(ctx, "z");
@@ -111,24 +111,24 @@ public final class TextureCrackCommand extends Command {
                         return SUCCESS;
                     }))));
 
-        root.then(LiteralArgumentBuilder.<AutismCommandSource>literal("radius")
-            .then(RequiredArgumentBuilder.<AutismCommandSource, Integer>argument("blocks", IntegerArgumentType.integer(16, 1000000))
+        root.then(LiteralArgumentBuilder.<DihCommandSource>literal("radius")
+            .then(RequiredArgumentBuilder.<DihCommandSource, Integer>argument("blocks", IntegerArgumentType.integer(16, 1000000))
                 .executes(ctx -> {
                     radius = IntegerArgumentType.getInteger(ctx, "blocks");
                     msg("Radius = " + String.format("%,d", radius));
                     return SUCCESS;
                 })));
 
-        root.then(LiteralArgumentBuilder.<AutismCommandSource>literal("tolerance")
-            .then(RequiredArgumentBuilder.<AutismCommandSource, Integer>argument("cells", IntegerArgumentType.integer(0, 8))
+        root.then(LiteralArgumentBuilder.<DihCommandSource>literal("tolerance")
+            .then(RequiredArgumentBuilder.<DihCommandSource, Integer>argument("cells", IntegerArgumentType.integer(0, 8))
                 .executes(ctx -> {
                     tolerance = IntegerArgumentType.getInteger(ctx, "cells");
                     msg("Tolerance = " + (int) tolerance + " misread cell(s)");
                     return SUCCESS;
                 })));
 
-        root.then(LiteralArgumentBuilder.<AutismCommandSource>literal("facing")
-            .then(RequiredArgumentBuilder.<AutismCommandSource, String>argument("dir", StringArgumentType.word())
+        root.then(LiteralArgumentBuilder.<DihCommandSource>literal("facing")
+            .then(RequiredArgumentBuilder.<DihCommandSource, String>argument("dir", StringArgumentType.word())
                 .executes(ctx -> {
                     String d = StringArgumentType.getString(ctx, "dir").toLowerCase(Locale.ROOT);
                     facingLock = switch (d) {
@@ -142,8 +142,8 @@ public final class TextureCrackCommand extends Command {
                     return SUCCESS;
                 })));
 
-        root.then(LiteralArgumentBuilder.<AutismCommandSource>literal("formula")
-            .then(RequiredArgumentBuilder.<AutismCommandSource, String>argument("mode", StringArgumentType.word())
+        root.then(LiteralArgumentBuilder.<DihCommandSource>literal("formula")
+            .then(RequiredArgumentBuilder.<DihCommandSource, String>argument("mode", StringArgumentType.word())
                 .executes(ctx -> {
                     String m = StringArgumentType.getString(ctx, "mode").toLowerCase(Locale.ROOT);
                     formulaMode = switch (m) {
@@ -159,26 +159,26 @@ public final class TextureCrackCommand extends Command {
                     return SUCCESS;
                 })));
 
-        root.then(LiteralArgumentBuilder.<AutismCommandSource>literal("alloffsets")
-            .then(RequiredArgumentBuilder.<AutismCommandSource, String>argument("state", StringArgumentType.word())
+        root.then(LiteralArgumentBuilder.<DihCommandSource>literal("alloffsets")
+            .then(RequiredArgumentBuilder.<DihCommandSource, String>argument("state", StringArgumentType.word())
                 .executes(ctx -> {
                     allOffsets = StringArgumentType.getString(ctx, "state").toLowerCase(Locale.ROOT).startsWith("on");
                     msg("All offsets = " + (allOffsets ? "ON (16 combos, more FPs)" : "off (coupled pairs)"));
                     return SUCCESS;
                 })));
 
-        root.then(LiteralArgumentBuilder.<AutismCommandSource>literal("solve").executes(ctx -> {
+        root.then(LiteralArgumentBuilder.<DihCommandSource>literal("solve").executes(ctx -> {
             solve();
             return SUCCESS;
         }));
 
-        root.then(LiteralArgumentBuilder.<AutismCommandSource>literal("cancel").executes(ctx -> {
+        root.then(LiteralArgumentBuilder.<DihCommandSource>literal("cancel").executes(ctx -> {
             TextureCrackEngine.cancel();
             msg("Cancelled.");
             return SUCCESS;
         }));
 
-        root.then(LiteralArgumentBuilder.<AutismCommandSource>literal("status").executes(ctx -> {
+        root.then(LiteralArgumentBuilder.<DihCommandSource>literal("status").executes(ctx -> {
             int known = countKnown();
             msg(TextureCrackEngine.status
                 + " | grid " + (grid == null ? "unset" : grid.length + " row(s), " + known + " known")
@@ -188,12 +188,12 @@ public final class TextureCrackCommand extends Command {
             return SUCCESS;
         }));
 
-        root.then(LiteralArgumentBuilder.<AutismCommandSource>literal("read")
+        root.then(LiteralArgumentBuilder.<DihCommandSource>literal("read")
             .executes(ctx -> {
                 readUnderPlayer(5);
                 return SUCCESS;
             })
-            .then(RequiredArgumentBuilder.<AutismCommandSource, Integer>argument("size", IntegerArgumentType.integer(2, 16))
+            .then(RequiredArgumentBuilder.<DihCommandSource, Integer>argument("size", IntegerArgumentType.integer(2, 16))
                 .executes(ctx -> {
                     readUnderPlayer(IntegerArgumentType.getInteger(ctx, "size"));
                     return SUCCESS;
@@ -381,6 +381,6 @@ public final class TextureCrackCommand extends Command {
     }
 
     private static void msg(String s) {
-        AutismClientMessaging.sendPrefixed(s);
+        DihClientMessaging.sendPrefixed(s);
     }
 }

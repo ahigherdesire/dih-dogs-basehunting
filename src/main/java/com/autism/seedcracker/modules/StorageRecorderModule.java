@@ -10,12 +10,12 @@ import java.util.concurrent.ConcurrentHashMap;
 import com.autism.seedcracker.SeedcrackerAddon;
 import com.autism.seedcracker.render.BlockEspRenderer;
 
-import autismclient.api.module.ActionSetting;
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.ColorSetting;
-import autismclient.api.module.IntSetting;
-import autismclient.modules.Module;
-import autismclient.util.AutismClientMessaging;
+import dihclient.api.module.ActionSetting;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.ColorSetting;
+import dihclient.api.module.IntSetting;
+import dihclient.modules.Module;
+import dihclient.util.DihClientMessaging;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.ChunkPos;
@@ -99,7 +99,7 @@ public final class StorageRecorderModule extends Module {
         espAvailable = false;
         if (!syncEsp.get()) return;
         try {
-            autismclient.modules.Module esp = ModuleLookup.get("storage-esp");
+            dihclient.modules.Module esp = ModuleLookup.get("storage-esp");
             if (esp == null) return;
             for (int i = 0; i < ESP_COLOR_OPTIONS.length; i++) {
                 espColors[i] = com.autism.seedcracker.compat.ClientCompatUtil.moduleColor(esp, ESP_COLOR_OPTIONS[i], ESP_COLOR_DEFAULTS[i]);
@@ -348,7 +348,7 @@ public final class StorageRecorderModule extends Module {
     }
 
     private java.nio.file.Path recordFile() {
-        return autismclient.AutismClientAddon.FOLDER.toPath()
+        return dihclient.DihClientAddon.FOLDER.toPath()
             .resolve("storage-recorder").resolve(loadedKey + ".txt");
     }
 
@@ -388,7 +388,7 @@ public final class StorageRecorderModule extends Module {
             try { java.nio.file.Files.deleteIfExists(recordFile()); } catch (Throwable ignored) {}
         }
         clearFeeds();
-        AutismClientMessaging.sendPrefixed("Storage Recorder: record cleared.");
+        DihClientMessaging.sendPrefixed("Storage Recorder: record cleared.");
     }
 
     @Override

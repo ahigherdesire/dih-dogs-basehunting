@@ -2,8 +2,8 @@ package com.autism.seedcracker.modules;
 
 import com.autism.seedcracker.SeedcrackerAddon;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.modules.Module;
+import dihclient.api.module.BoolSetting;
+import dihclient.modules.Module;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.phys.Vec3;

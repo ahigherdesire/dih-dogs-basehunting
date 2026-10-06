@@ -3,10 +3,10 @@ package com.autism.seedcracker.modules;
 import com.autism.seedcracker.SeedcrackerAddon;
 import com.autism.seedcracker.util.tunnel.LegitMovement;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.EnumSetting;
-import autismclient.api.module.IntSetting;
-import autismclient.modules.Module;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.EnumSetting;
+import dihclient.api.module.IntSetting;
+import dihclient.modules.Module;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.util.Mth;
@@ -178,7 +178,7 @@ public final class MacePvpModule extends Module {
 
         selectMaceWithReturn(mc, mace); // remember return slot, then select the mace
         mc.gameMode.attack(mc.player, target);
-        mc.player.swing(InteractionHand.MAIN_HAND);
+        com.autism.seedcracker.compat.McCompat.swing(mc.player, InteractionHand.MAIN_HAND);
         cooldownWait = respectCooldown.get() ? 2 : 1;
     }
 

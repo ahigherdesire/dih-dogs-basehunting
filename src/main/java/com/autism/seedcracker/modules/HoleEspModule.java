@@ -11,9 +11,9 @@ import com.autism.seedcracker.SeedcrackerAddon;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.IntSetting;
-import autismclient.modules.Module;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.IntSetting;
+import dihclient.modules.Module;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
@@ -61,7 +61,7 @@ public final class HoleEspModule extends Module {
     private record Hole(AABB box, int depth, boolean is1x1) {}
 
     public HoleEspModule() {
-        super(SeedcrackerAddon.ID + ":hole-esp", "Hole ESP",
+        super(SeedcrackerAddon.ID + ":hole-esp", "Shaft ESP",
             "Highlights deep vertical holes (1x1 and 3x1) around you.");
     }
 

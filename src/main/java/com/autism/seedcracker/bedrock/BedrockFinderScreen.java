@@ -381,7 +381,7 @@ public final class BedrockFinderScreen extends Screen {
                     lines.add(sb.toString());
                 }
             }
-            java.nio.file.Path f = autismclient.AutismClientAddon.FOLDER.toPath().resolve("bedrock-pattern.txt");
+            java.nio.file.Path f = dihclient.DihClientAddon.FOLDER.toPath().resolve("bedrock-pattern.txt");
             java.nio.file.Files.createDirectories(f.getParent());
             java.nio.file.Files.write(f, lines);
             String seed = this.seedField != null ? this.seedField.getValue().trim() : lastSeed;

@@ -1,6 +1,5 @@
 package kaptainwutax.seedcrackerX.util;
 
-import com.mojang.authlib.HttpAuthenticationService;
 import com.mojang.authlib.exceptions.AuthenticationException;
 import com.mojang.authlib.exceptions.AuthenticationUnavailableException;
 import com.mojang.authlib.exceptions.InsufficientPrivilegesException;
@@ -57,6 +56,19 @@ public class Database {
         return hashedSeedToSeed.get(hashedSeed);
     }
 
+    /** application/x-www-form-urlencoded body (what authlib's removed buildQuery produced). */
+    private static String formEncode(Map<String, Object> data) {
+        StringBuilder out = new StringBuilder();
+        for (Map.Entry<String, Object> e : data.entrySet()) {
+            if (out.length() > 0) out.append('&');
+            out.append(java.net.URLEncoder.encode(e.getKey(), java.nio.charset.StandardCharsets.UTF_8));
+            if (e.getValue() != null) {
+                out.append('=').append(java.net.URLEncoder.encode(e.getValue().toString(), java.nio.charset.StandardCharsets.UTF_8));
+            }
+        }
+        return out.toString();
+    }
+
     public static void handleDatabaseCall(Long seed) {
         Minecraft client = Minecraft.getInstance();
         Map<String,Object> data = new HashMap<>();
@@ -69,7 +81,7 @@ public class Database {
 
         HttpRequest request = HttpRequest.newBuilder(URI.create(DATABASE_POST_URL))
             .timeout(TIMEOUT)
-            .POST(HttpRequest.BodyPublishers.ofString(HttpAuthenticationService.buildQuery(data)))
+            .POST(HttpRequest.BodyPublishers.ofString(formEncode(data)))
             .setHeader("User-Agent", SEEDCRACKERX_USER_AGENT)
             .header("Content-Type", "application/x-www-form-urlencoded")
             .build();

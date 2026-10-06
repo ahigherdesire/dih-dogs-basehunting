@@ -8,11 +8,11 @@ import java.util.concurrent.ConcurrentHashMap;
 import com.autism.seedcracker.SeedcrackerAddon;
 import com.autism.seedcracker.render.BlockEspRenderer;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.ColorSetting;
-import autismclient.api.module.IntSetting;
-import autismclient.modules.Module;
-import autismclient.util.AutismClientMessaging;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.ColorSetting;
+import dihclient.api.module.IntSetting;
+import dihclient.modules.Module;
+import dihclient.util.DihClientMessaging;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.ChunkPos;
@@ -222,7 +222,7 @@ public final class AmethystEspModule extends Module {
             found.add(new BlockPos((chunkX << 4) + 8, (secY << 4) + 8, (chunkZ << 4) + 8));
         }
         if (chatAlert.get() && notified.add(key)) {
-            AutismClientMessaging.sendPrefixed("§d[AmethystESP] §fHidden geode at X:" + pos.getMinBlockX()
+            DihClientMessaging.sendPrefixed("§d[AmethystESP] §fHidden geode at X:" + pos.getMinBlockX()
                 + " Z:" + pos.getMinBlockZ() + " §7(" + hidden.size() + " sections)");
         }
     }
@@ -249,7 +249,7 @@ public final class AmethystEspModule extends Module {
         if (found.size() >= minCluster.get()) {
             flagged.put(key, found);
             if (chatAlert.get() && notified.add(key)) {
-                AutismClientMessaging.sendPrefixed("§d[AmethystESP] §fAmethyst cluster at X:" + pos.getMinBlockX()
+                DihClientMessaging.sendPrefixed("§d[AmethystESP] §fAmethyst cluster at X:" + pos.getMinBlockX()
                     + " Z:" + pos.getMinBlockZ() + " §7(" + found.size() + " blocks)");
             }
         } else {

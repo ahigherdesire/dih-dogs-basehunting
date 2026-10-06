@@ -8,12 +8,12 @@ import java.util.regex.Pattern;
 import com.autism.seedcracker.SeedcrackerAddon;
 import com.autism.seedcracker.render.BlockEspRenderer;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.ColorSetting;
-import autismclient.api.module.EnumSetting;
-import autismclient.api.module.IntSetting;
-import autismclient.modules.Module;
-import autismclient.util.AutismClientMessaging;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.ColorSetting;
+import dihclient.api.module.EnumSetting;
+import dihclient.api.module.IntSetting;
+import dihclient.modules.Module;
+import dihclient.util.DihClientMessaging;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.protocol.Packet;
@@ -129,7 +129,7 @@ public final class StructureDetectorModule extends Module {
         located = found;
         locatedName = structure.get().id;
         if (notify.get()) {
-            AutismClientMessaging.sendPrefixed("§b[Structure] §fNearest §d" + structure.get().id
+            DihClientMessaging.sendPrefixed("§b[Structure] §fNearest §d" + structure.get().id
                 + "§f at §e" + found.getX() + " " + found.getY() + " " + found.getZ());
         }
         if (heatFilter.get()) {

@@ -5,10 +5,10 @@ import com.autism.seedcracker.compat.ModuleLookup;
 import com.autism.seedcracker.SeedcrackerAddon;
 import com.autism.seedcracker.util.FlagLog;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.IntSetting;
-import autismclient.modules.Module;
-import autismclient.util.AutismClientMessaging;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.IntSetting;
+import dihclient.modules.Module;
+import dihclient.util.DihClientMessaging;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.common.ClientboundDisconnectPacket;
@@ -52,13 +52,13 @@ public final class FlagDetectorModule extends Module {
         .description("Hide the panel on menus.").group("HUD").visibleWhen(() -> hud.get()));
     private final BoolSetting hudSession = add(new BoolSetting("hud-session", "HUD session time", true)
         .description("Show how long telemetry has been recording.").group("HUD").visibleWhen(() -> hud.get()));
-    private final autismclient.api.module.IntSetting hudX = add(new autismclient.api.module.IntSetting("hud-x", "HUD X", 4, 0, 4000, 1)
+    private final dihclient.api.module.IntSetting hudX = add(new dihclient.api.module.IntSetting("hud-x", "HUD X", 4, 0, 4000, 1)
         .description("Panel X position.").group("HUD").visibleWhen(() -> hud.get()));
-    private final autismclient.api.module.IntSetting hudY = add(new autismclient.api.module.IntSetting("hud-y", "HUD Y", 4, 0, 4000, 1)
+    private final dihclient.api.module.IntSetting hudY = add(new dihclient.api.module.IntSetting("hud-y", "HUD Y", 4, 0, 4000, 1)
         .description("Panel Y position.").group("HUD").visibleWhen(() -> hud.get()));
-    private final autismclient.api.module.IntSetting hudWidth = add(new autismclient.api.module.IntSetting("hud-width", "HUD width", 152, 110, 240, 2)
+    private final dihclient.api.module.IntSetting hudWidth = add(new dihclient.api.module.IntSetting("hud-width", "HUD width", 152, 110, 240, 2)
         .description("Panel width.").group("HUD").visibleWhen(() -> hud.get()));
-    private final autismclient.api.module.ColorSetting hudAccent = add(new autismclient.api.module.ColorSetting("hud-accent", "HUD accent", 0xFFFF6C6C)
+    private final dihclient.api.module.ColorSetting hudAccent = add(new dihclient.api.module.ColorSetting("hud-accent", "HUD accent", 0xFFFF6C6C)
         .description("Panel accent color.").group("HUD").visibleWhen(() -> hud.get()));
     private final BoolSetting onlyWhileAutomating = add(new BoolSetting("only-automating", "Only while automating", false)
         .description("Only log setbacks while an automation module (tunnel/build/mine) is likely running (less noise).").group("Detect"));
@@ -296,7 +296,7 @@ public final class FlagDetectorModule extends Module {
         // Teleport grace: suppress setbacks right after a legit self-teleport (/rtp, ender pearl,
         // tpaccept, dimension change, join/respawn).
         if (inGrace()) {
-            if (chat.get()) AutismClientMessaging.sendPrefixed("§7[Flag] setback suppressed (teleport grace)");
+            if (chat.get()) DihClientMessaging.sendPrefixed("§7[Flag] setback suppressed (teleport grace)");
             return;
         }
         // Recently died / joined / respawned: big legitimate teleports, not flags.
@@ -376,7 +376,7 @@ public final class FlagDetectorModule extends Module {
         FlagLog.flag(category, "FlagDetector", detail);
         tally(category);
         if (chat.get()) {
-            AutismClientMessaging.sendPrefixed("§c[Flag] §7" + category + " §f" + detail);
+            DihClientMessaging.sendPrefixed("§c[Flag] §7" + category + " §f" + detail);
         }
     }
 

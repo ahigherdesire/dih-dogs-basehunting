@@ -3,11 +3,11 @@ package com.autism.seedcracker.modules;
 import com.autism.seedcracker.SeedcrackerAddon;
 import com.autism.seedcracker.util.FlagLog;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.IntSetting;
-import autismclient.api.module.StringSetting;
-import autismclient.modules.Module;
-import autismclient.util.AutismClientMessaging;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.IntSetting;
+import dihclient.api.module.StringSetting;
+import dihclient.modules.Module;
+import dihclient.util.DihClientMessaging;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.TitleScreen;
 import net.minecraft.client.gui.screens.multiplayer.JoinMultiplayerScreen;
@@ -89,7 +89,7 @@ public final class PanicPayModule extends Module {
             fired = true;
             String threat = p.getPlainTextName();
             FlagLog.warn("PANIC", "PanicPay", "player " + threat + " in range -> paying " + target);
-            AutismClientMessaging.sendPrefixed("§c[PanicPay] §f" + threat + " detected! Paying " + target + "...");
+            DihClientMessaging.sendPrefixed("§c[PanicPay] §f" + threat + " detected! Paying " + target + "...");
             mc.getConnection().sendCommand("pay " + target + " " + amount.get());
 
             if (alsoDisconnect.get()) {

@@ -5,14 +5,11 @@ import com.autism.seedcracker.commands.BedrockFinderCommand;
 import com.autism.seedcracker.commands.HeatConfirmCommand;
 import com.autism.seedcracker.finder.ChunkFlagRenderer;
 import com.autism.seedcracker.hud.BaseTrackerHud;
-import com.autism.seedcracker.hud.FakeScoreboardHud;
 import com.autism.seedcracker.hud.SeedHud;
-import com.autism.seedcracker.hud.SessionStatsHud;
 import com.autism.seedcracker.hud.StashWarningHud;
 import com.autism.seedcracker.krypton.AutoFireworkModule;
 import com.autism.seedcracker.krypton.AutoTPAModule;
 import com.autism.seedcracker.krypton.KeyPearlModule;
-import com.autism.seedcracker.krypton.NameProtectModule;
 import com.autism.seedcracker.krypton.QuickMacroModule;
 import com.autism.seedcracker.modules.AHFlipperModule;
 import com.autism.seedcracker.modules.AHSniperModule;
@@ -26,7 +23,6 @@ import com.autism.seedcracker.modules.AutoEatModule;
 import com.autism.seedcracker.modules.AutoLogModule;
 import com.autism.seedcracker.modules.AutoMineModule;
 import com.autism.seedcracker.modules.AutoRenderModule;
-import com.autism.seedcracker.modules.AutoToolModule;
 import com.autism.seedcracker.modules.BaseLogBrowserModule;
 import com.autism.seedcracker.modules.BedrockFinderModule;
 import com.autism.seedcracker.modules.BedrockHoleEspModule;
@@ -36,13 +32,8 @@ import com.autism.seedcracker.modules.ChunkFinderModule;
 import com.autism.seedcracker.modules.CoordSnapperModule;
 import com.autism.seedcracker.modules.ElytraWarnerModule;
 import com.autism.seedcracker.modules.EntityScannerModule;
-import com.autism.seedcracker.modules.FakePayModule;
-import com.autism.seedcracker.modules.FakePaymentsModule;
 import com.autism.seedcracker.modules.FakePlayerModule;
-import com.autism.seedcracker.modules.FakeRolesModule;
 import com.autism.seedcracker.modules.FlagDetectorModule;
-import com.autism.seedcracker.modules.FastPlaceModule;
-import com.autism.seedcracker.modules.FreeLookModule;
 import com.autism.seedcracker.modules.GrowthFinderModule;
 import com.autism.seedcracker.modules.HoleEspModule;
 import com.autism.seedcracker.modules.HoleTunnelStairsEspModule;
@@ -52,37 +43,32 @@ import com.autism.seedcracker.modules.PaperRigModule;
 import com.autism.seedcracker.modules.PrimeChunkFinderModule;
 import com.autism.seedcracker.modules.RegionMapModule;
 import com.autism.seedcracker.modules.SchematicBuilderModule;
-import com.autism.seedcracker.modules.ScoreboardHiderModule;
 import com.autism.seedcracker.modules.SeedcrackerModule;
 import com.autism.seedcracker.modules.ShopBuyerModule;
-import com.autism.seedcracker.modules.SkinChangerModule;
 import com.autism.seedcracker.modules.SpawnerFinderModule;
 import com.autism.seedcracker.modules.SpawnerProtectModule;
-import com.autism.seedcracker.modules.SprintModule;
 import com.autism.seedcracker.modules.StashFinderModule;
 import com.autism.seedcracker.modules.StructureDetectorModule;
 import com.autism.seedcracker.modules.SusChunkFinderModule;
 import com.autism.seedcracker.modules.TunnelBaseWaterModule;
-import com.autism.seedcracker.modules.SwingSpeedModule;
-import com.autism.seedcracker.modules.TPASpammerModule;
 import com.autism.seedcracker.modules.TabDetectorModule;
 import com.autism.seedcracker.modules.TunnelBaseFinderModule;
 import com.autism.seedcracker.modules.WeatherNotifierModule;
 import com.autism.seedcracker.rtp.DonutRTPStashFinderModule;
 import com.autism.seedcracker.rtp.RelogLoaderModule;
 
-import autismclient.api.ApiVersion;
-import autismclient.api.AutismAddon;
-import autismclient.api.AutismAddons;
+import dihclient.api.ApiVersion;
+import dihclient.api.DihAddon;
+import dihclient.api.DihAddons;
 
 /**
- * AUTISM Client addon entrypoint (the "autism" entrypoint in fabric.mod.json).
+ * DIH Client addon entrypoint (the "dih" entrypoint in fabric.mod.json).
  *
- * Registers the SeedCracker module so it shows up in the AUTISM module menu and can be
+ * Registers the SeedCracker module so it shows up in the DIH module menu and can be
  * toggled on/off. The SeedCrackerX engine itself is started by {@link SeedcrackerInit}.
  */
-public final class SeedcrackerAddon extends AutismAddon {
-    public static final String ID = "autism-seedcracker";
+public final class SeedcrackerAddon extends DihAddon {
+    public static final String ID = "dogs-basehunting";
 
     @Override
     public int apiVersion() {
@@ -90,14 +76,14 @@ public final class SeedcrackerAddon extends AutismAddon {
     }
 
     /** Track a module in our own obfuscation-proof registry, then register it with the client. */
-    private static void reg(autismclient.modules.Module module) {
+    private static void reg(dihclient.modules.Module module) {
         com.autism.seedcracker.compat.ModuleLookup.track(module);
-        AutismAddons.modules().register(module);
+        DihAddons.modules().register(module);
     }
 
     /** Register + assign a named tab via the reflection-based CategoryAssigner (restores per-tab
      * grouping across client versions without referencing the renamed category type). */
-    private static void regTab(autismclient.modules.Module module, String tab) {
+    private static void regTab(dihclient.modules.Module module, String tab) {
         com.autism.seedcracker.compat.CategoryAssigner.assign(module, tab);
         reg(module);
     }
@@ -128,7 +114,6 @@ public final class SeedcrackerAddon extends AutismAddon {
         regTab(new ChunkFinderModule(), "Finders");
         regTab(new SpawnerFinderModule(), "Finders");
         regTab(new SusChunkFinderModule(), "Finders");
-        regTab(new com.autism.seedcracker.modules.SeedRayModule(), "Finders");
         regTab(new com.autism.seedcracker.modules.ChunkWaypointsModule(), "Finders");
         regTab(new com.autism.seedcracker.modules.FinderOverlayModule(), "Finders");
         regTab(new com.autism.seedcracker.modules.PlayerChunksModule(), "Finders");
@@ -155,11 +140,7 @@ public final class SeedcrackerAddon extends AutismAddon {
         regTab(new SpawnerProtectModule(), "Entity");
         regTab(new AutoRenderModule(), "Render");
         regTab(new PaperRigModule(), "Render");
-        regTab(new ScoreboardHiderModule(), "Render");
         regTab(new com.autism.seedcracker.modules.StorageRecorderModule(), "Render");
-        regTab(new FakePayModule(), "Fake");
-        regTab(new FakePaymentsModule(), "Fake");
-        regTab(new FakeRolesModule(), "Fake");
 
         // Trading.
         regTab(new AHFlipperModule(), "Trading");
@@ -169,13 +150,9 @@ public final class SeedcrackerAddon extends AutismAddon {
 
         // Dogs Misc Tools (Zelith misc modules, ported).
         String dogs = "Dogs Misc Tools";
-        regTab(new SprintModule(), dogs);
         regTab(new AntiAFKModule(), dogs);
-        regTab(new FastPlaceModule(), dogs);
-        regTab(new FreeLookModule(), dogs);
         regTab(new AutoEatModule(), dogs);
         regTab(new AutoMineModule(), dogs);
-        regTab(new SwingSpeedModule(), dogs);
         regTab(new CoordSnapperModule(), dogs);
         regTab(new FakePlayerModule(), dogs);
         regTab(new AutoLogModule(), dogs);
@@ -185,7 +162,6 @@ public final class SeedcrackerAddon extends AutismAddon {
         regTab(new com.autism.seedcracker.modules.SpectatorDetectorModule(), dogs);
         regTab(new com.autism.seedcracker.modules.PanicPayModule(), dogs);
         regTab(new com.autism.seedcracker.modules.AntiCheatGuesserModule(), dogs);
-        regTab(new com.autism.seedcracker.modules.FakeLatencyModule(), dogs);
         regTab(new com.autism.seedcracker.modules.PositionPacketFilterModule(), dogs);
         regTab(new com.autism.seedcracker.modules.CoordinateProtectorModule(), dogs);
         regTab(new com.autism.seedcracker.modules.AutoStoreModule(), dogs);
@@ -193,13 +169,10 @@ public final class SeedcrackerAddon extends AutismAddon {
         regTab(new com.autism.seedcracker.modules.ChestStealerModule(), dogs);
         regTab(new com.autism.seedcracker.modules.AutoReplenishModule(), dogs);
         regTab(new com.autism.seedcracker.modules.BalanceTagsModule(), dogs);
-        regTab(new AutoToolModule(), dogs);
-        regTab(new TPASpammerModule(), dogs);
         regTab(new TabDetectorModule(), dogs);
         regTab(new WeatherNotifierModule(), dogs);
         regTab(new HomeSetterModule(), dogs);
         regTab(new com.autism.seedcracker.modules.HomeMetaModule(), dogs);
-        regTab(new SkinChangerModule(), dogs);
         regTab(new ChatGamesModule(), dogs);
         regTab(new RegionMapModule(), dogs);
         regTab(new SchematicBuilderModule(), dogs);
@@ -217,21 +190,18 @@ public final class SeedcrackerAddon extends AutismAddon {
         regTab(new AutoFireworkModule(), dogs);
         regTab(new AutoTPAModule(), dogs);
         regTab(new QuickMacroModule(), dogs);
-        regTab(new NameProtectModule(), dogs);
 
         // Combat suite (subtle mace PVP).
         regTab(new com.autism.seedcracker.modules.MacePvpModule(), dogs);
 
-        AutismAddons.commands().register(new BedrockFinderCommand());
-        AutismAddons.commands().register(new BaseLogCommand());
-        AutismAddons.commands().register(new com.autism.seedcracker.commands.TextureCrackCommand());
-        AutismAddons.commands().register(new com.autism.seedcracker.commands.CrossCheckCommand());
-        AutismAddons.commands().register(new HeatConfirmCommand());
-        AutismAddons.hud().register(new SeedHud());
-        AutismAddons.hud().register(new StashWarningHud());
-        AutismAddons.hud().register(new SessionStatsHud());
-        AutismAddons.hud().register(new FakeScoreboardHud());
-        AutismAddons.hud().register(new BaseTrackerHud());
+        DihAddons.commands().register(new BedrockFinderCommand());
+        DihAddons.commands().register(new BaseLogCommand());
+        DihAddons.commands().register(new com.autism.seedcracker.commands.TextureCrackCommand());
+        DihAddons.commands().register(new com.autism.seedcracker.commands.CrossCheckCommand());
+        DihAddons.commands().register(new HeatConfirmCommand());
+        DihAddons.hud().register(new SeedHud());
+        DihAddons.hud().register(new StashWarningHud());
+        DihAddons.hud().register(new BaseTrackerHud());
     }
 
     @Override

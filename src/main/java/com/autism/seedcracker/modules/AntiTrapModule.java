@@ -4,9 +4,9 @@ import com.autism.seedcracker.compat.ClientNotify;
 
 import com.autism.seedcracker.SeedcrackerAddon;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.IntSetting;
-import autismclient.modules.Module;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.IntSetting;
+import dihclient.modules.Module;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.decoration.ArmorStand;
@@ -67,11 +67,11 @@ public final class AntiTrapModule extends Module {
         }
         for (Entity e : targets) {
             mc.gameMode.attack(mc.player, e);
-            mc.player.swing(net.minecraft.world.InteractionHand.MAIN_HAND);
+            com.autism.seedcracker.compat.McCompat.swing(mc.player, net.minecraft.world.InteractionHand.MAIN_HAND);
             cooldownTicks = cooldown.get();
             if (notify.get()) {
                 String msg = "Removed trap entity (" + e.getName().getString() + ")";
-                autismclient.util.AutismClientMessaging.sendPrefixed("§c[AntiTrap] §f" + msg);
+                dihclient.util.DihClientMessaging.sendPrefixed("§c[AntiTrap] §f" + msg);
                 ClientNotify.warning("AntiTrap: " + msg);
             }
             break; // one per cooldown, like a real player clicking

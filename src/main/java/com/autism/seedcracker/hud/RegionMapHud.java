@@ -1,6 +1,6 @@
 package com.autism.seedcracker.hud;
 
-import autismclient.api.hud.HudElementProvider;
+import dihclient.api.hud.HudElementProvider;
 import com.autism.seedcracker.SeedcrackerAddon;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;

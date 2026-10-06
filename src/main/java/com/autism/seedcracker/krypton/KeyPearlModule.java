@@ -2,9 +2,9 @@ package com.autism.seedcracker.krypton;
 
 import com.autism.seedcracker.SeedcrackerAddon;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.IntSetting;
-import autismclient.modules.Module;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.IntSetting;
+import dihclient.modules.Module;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.item.Item;
@@ -60,7 +60,7 @@ public final class KeyPearlModule extends Module {
         } else if (stage == 1) {
             if (counter++ < throwDelay.get()) return;
             mc.gameMode.useItem(mc.player, InteractionHand.MAIN_HAND);
-            mc.player.swing(InteractionHand.MAIN_HAND);
+            com.autism.seedcracker.compat.McCompat.swing(mc.player, InteractionHand.MAIN_HAND);
             stage = 2;
             counter = 0;
             if (!switchBack.get()) setEnabledSilently(false);

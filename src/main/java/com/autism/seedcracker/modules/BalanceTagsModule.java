@@ -16,12 +16,12 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import com.autism.seedcracker.SeedcrackerAddon;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.ColorSetting;
-import autismclient.api.module.IntSetting;
-import autismclient.api.module.StringSetting;
-import autismclient.modules.Module;
-import autismclient.util.AutismClientMessaging;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.ColorSetting;
+import dihclient.api.module.IntSetting;
+import dihclient.api.module.StringSetting;
+import dihclient.modules.Module;
+import dihclient.util.DihClientMessaging;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -139,7 +139,7 @@ public final class BalanceTagsModule extends Module {
         if (bal == null || bal < overM * 1_000_000L) return;
         if (!alerted.add(name)) return;
         Minecraft.getInstance().execute(() ->
-            AutismClientMessaging.sendPrefixed("§6[BalanceTags] §f" + name + " is worth §a" + formatMoney(bal) + "§f!"));
+            DihClientMessaging.sendPrefixed("§6[BalanceTags] §f" + name + " is worth §a" + formatMoney(bal) + "§f!"));
     }
 
     private String resolveApiKey() {
@@ -147,7 +147,7 @@ public final class BalanceTagsModule extends Module {
         if (!own.isEmpty()) return own;
         // Fall back to the key the AH modules save to disk.
         try {
-            java.nio.file.Path f = autismclient.AutismClientAddon.FOLDER.toPath()
+            java.nio.file.Path f = dihclient.DihClientAddon.FOLDER.toPath()
                 .resolve("donut-ah").resolve("api-key.txt");
             if (java.nio.file.Files.exists(f)) return java.nio.file.Files.readString(f).trim();
         } catch (Throwable ignored) {}

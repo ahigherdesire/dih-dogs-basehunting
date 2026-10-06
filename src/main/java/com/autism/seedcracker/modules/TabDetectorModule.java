@@ -2,10 +2,10 @@ package com.autism.seedcracker.modules;
 
 import com.autism.seedcracker.SeedcrackerAddon;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.StringSetting;
-import autismclient.modules.Module;
-import autismclient.util.AutismClientMessaging;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.StringSetting;
+import dihclient.modules.Module;
+import dihclient.util.DihClientMessaging;
 import com.autism.seedcracker.compat.ClientNotify;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.PlayerInfo;
@@ -128,7 +128,7 @@ public final class TabDetectorModule extends Module {
         String verb = joined ? "joined" : "left";
         String message = (names.size() == 1 ? "Player " : "Players ") + verb + ": " + list;
         if (chat.get()) {
-            AutismClientMessaging.sendPrefixed((joined ? "§a[Tab Detector] " : "§e[Tab Detector] ") + message);
+            DihClientMessaging.sendPrefixed((joined ? "§a[Tab Detector] " : "§e[Tab Detector] ") + message);
         }
         if (toast.get()) {
             ClientNotify.warning("Tab Detector: " + message);

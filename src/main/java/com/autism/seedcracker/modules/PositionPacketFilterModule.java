@@ -3,9 +3,9 @@ package com.autism.seedcracker.modules;
 import com.autism.seedcracker.SeedcrackerAddon;
 import com.autism.seedcracker.util.FlagLog;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.IntSetting;
-import autismclient.modules.Module;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.IntSetting;
+import dihclient.modules.Module;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ClientboundEntityPositionSyncPacket;
 import net.minecraft.world.phys.Vec3;
@@ -42,7 +42,8 @@ public final class PositionPacketFilterModule extends Module {
     public boolean onPacketReceive(Packet<?> packet) {
         if (!(packet instanceof ClientboundEntityPositionSyncPacket sync)) return false;
 
-        Vec3 pos = sync.values().position();
+        Vec3 pos = com.autism.seedcracker.compat.McCompat.syncPosition(sync);
+        if (pos == null) return false;
         boolean bad = false;
         if (filterNaN.get()
             && (!Double.isFinite(pos.x) || !Double.isFinite(pos.y) || !Double.isFinite(pos.z))) {

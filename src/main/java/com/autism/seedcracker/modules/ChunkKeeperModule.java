@@ -8,11 +8,11 @@ import com.autism.seedcracker.SeedcrackerAddon;
 import com.autism.seedcracker.finder.ChunkFlagRenderer;
 import com.autism.seedcracker.util.FlagLog;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.ColorSetting;
-import autismclient.api.module.IntSetting;
-import autismclient.modules.Module;
-import autismclient.util.AutismClientMessaging;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.ColorSetting;
+import dihclient.api.module.IntSetting;
+import dihclient.modules.Module;
+import dihclient.util.DihClientMessaging;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ClientboundForgetLevelChunkPacket;
@@ -92,8 +92,8 @@ public final class ChunkKeeperModule extends Module {
     public boolean onPacketReceive(Packet<?> packet) {
         Minecraft mc = Minecraft.getInstance();
         if (packet instanceof ClientboundLevelChunkWithLightPacket chunkPacket) {
-            final int x = chunkPacket.getX();
-            final int z = chunkPacket.getZ();
+            final int x = com.autism.seedcracker.compat.McCompat.chunkX(chunkPacket);
+            final int z = com.autism.seedcracker.compat.McCompat.chunkZ(chunkPacket);
             long key = (((long) x) << 32) | (z & 0xffffffffL);
 
             // HOLD: a re-send for a chunk we already have is the anti-xray "fixing itself" -
@@ -170,7 +170,7 @@ public final class ChunkKeeperModule extends Module {
                 FlagLog.warn("CHUNKKEEP", "ChunkKeeper", "chunk " + x + "," + z
                     + " re-sent with " + populated + " sections (was " + prev + ") - stripped!");
                 if (notify.get()) {
-                    AutismClientMessaging.sendPrefixed("§d[ChunkKeeper] §fChunk " + (x << 4) + ", " + (z << 4)
+                    DihClientMessaging.sendPrefixed("§d[ChunkKeeper] §fChunk " + (x << 4) + ", " + (z << 4)
                         + " was re-sent STRIPPED (" + prev + " -> " + populated + " sections).");
                 }
             }

@@ -1,17 +1,10 @@
-# In this repo these are auto-synced from the client: run `gradlew syncAddonTemplateVersions` (it also runs
-# on publishToMavenLocal), which pins minecraft/fabric-loader/fabric-api/loom/autism to the client's
-# gradle/libs.versions.toml. In a copied-out addon, set them to the AUTISM Client release you build against.
+# Minecraft-specific versions live in build.gradle.kts (`targets`), selected with -Pmc=26.2 / -Pmc=26.3.
 [versions]
 mod-version = "2.1"
 
 minecraft = "26.2"
 fabric-loader = "0.19.3"
 fabric-api = "0.152.2+26.2"
-# The AUTISM Client release you compile against. The matching jar is vendored in libs/
-# (autism-<version>.jar) and resolved via flatDir, so no maven repo is needed. Bump this and
-# drop the new jar in libs/ to upgrade.
-# Point at "earlyfix" to compile against the EarlyFix client jar (libs/autism-earlyfix.jar).
-autism = "5.0-26.2-dev"
 
 loom = "1.17.11"
 
@@ -19,7 +12,6 @@ loom = "1.17.11"
 minecraft = { module = "com.mojang:minecraft", version.ref = "minecraft" }
 fabric-loader = { module = "net.fabricmc:fabric-loader", version.ref = "fabric-loader" }
 fabric-api = { module = "net.fabricmc.fabric-api:fabric-api", version.ref = "fabric-api" }
-autism = { module = "com.autismclient:autism", version.ref = "autism" }
 
 [plugins]
 fabric-loom = { id = "net.fabricmc.fabric-loom", version.ref = "loom" }

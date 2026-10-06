@@ -5,10 +5,10 @@ import java.util.Map;
 
 import com.autism.seedcracker.SeedcrackerAddon;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.EnumSetting;
-import autismclient.modules.Module;
-import autismclient.util.AutismClientMessaging;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.EnumSetting;
+import dihclient.modules.Module;
+import dihclient.util.DihClientMessaging;
 import kaptainwutax.seedcrackerX.SeedCracker;
 import kaptainwutax.seedcrackerX.config.Config;
 import kaptainwutax.seedcrackerX.util.FeatureToggle;
@@ -104,7 +104,7 @@ public final class SeedcrackerModule extends Module {
     public void onEnable() {
         Config.get().active = true;
         Config.save();
-        AutismClientMessaging.sendPrefixed("§aSeedCracker active.");
+        DihClientMessaging.sendPrefixed("§aSeedCracker active.");
     }
 
     @Override

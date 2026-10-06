@@ -7,12 +7,12 @@ import java.util.concurrent.ConcurrentHashMap;
 import com.autism.seedcracker.SeedcrackerAddon;
 import com.autism.seedcracker.finder.ChunkFlagRenderer;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.ColorSetting;
-import autismclient.api.module.EnumSetting;
-import autismclient.api.module.IntSetting;
-import autismclient.modules.Module;
-import autismclient.util.AutismClientMessaging;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.ColorSetting;
+import dihclient.api.module.EnumSetting;
+import dihclient.api.module.IntSetting;
+import dihclient.modules.Module;
+import dihclient.util.DihClientMessaging;
 import com.autism.seedcracker.compat.ClientNotify;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
@@ -281,7 +281,7 @@ public final class SusChunkFinderModule extends Module {
     private java.nio.file.Path flagsFile() {
         Minecraft mc = Minecraft.getInstance();
         String dim = mc.level != null ? mc.level.dimension().toString().replace(':', '_') : "unknown";
-        return autismclient.AutismClientAddon.FOLDER.toPath()
+        return dihclient.DihClientAddon.FOLDER.toPath()
             .resolve("sus-chunk-flags-" + dim + ".txt");
     }
 
@@ -343,7 +343,7 @@ public final class SusChunkFinderModule extends Module {
         // ACTIVITY: count chunk load/unload events (another player's render bubble cycling ours).
         if (m == Mode.ACTIVITY) {
             if (packet instanceof net.minecraft.network.protocol.game.ClientboundLevelChunkWithLightPacket load) {
-                onChunkActivity(new ChunkPos(load.getX(), load.getZ()), true);
+                onChunkActivity(new ChunkPos(com.autism.seedcracker.compat.McCompat.chunkX(load), com.autism.seedcracker.compat.McCompat.chunkZ(load)), true);
             } else if (packet instanceof net.minecraft.network.protocol.game.ClientboundForgetLevelChunkPacket forget) {
                 onChunkActivity(forget.pos(), false);
             }
@@ -1349,7 +1349,7 @@ public final class SusChunkFinderModule extends Module {
         if (!notify.get()) return;
         String msg = "Sus chunk at X:" + pos.getMinBlockX() + " Z:" + pos.getMinBlockZ();
         ClientNotify.warning(msg);
-        AutismClientMessaging.sendPrefixed("§d[SusChunkFinder] §f" + msg);
+        DihClientMessaging.sendPrefixed("§d[SusChunkFinder] §f" + msg);
         Minecraft mc = Minecraft.getInstance();
         if (mc.player != null) mc.player.playSound(SoundEvents.EXPERIENCE_ORB_PICKUP, 1.0f, 1.0f);
     }

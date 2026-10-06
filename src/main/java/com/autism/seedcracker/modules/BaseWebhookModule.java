@@ -10,11 +10,11 @@ import com.autism.seedcracker.SeedcrackerAddon;
 import com.autism.seedcracker.finder.BaseTracker;
 import com.autism.seedcracker.util.FlagLog;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.IntSetting;
-import autismclient.api.module.StringSetting;
-import autismclient.modules.Module;
-import autismclient.util.AutismClientMessaging;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.IntSetting;
+import dihclient.api.module.StringSetting;
+import dihclient.modules.Module;
+import dihclient.util.DihClientMessaging;
 import net.minecraft.client.Minecraft;
 
 /**
@@ -82,7 +82,7 @@ public final class BaseWebhookModule extends Module {
             String desc = "Source: " + e.source() + "\\nConfidence: " + e.confidence() + "%\\n" + coords;
             postWebhook(url, "Base found!", desc);
             if (chatEcho.get()) {
-                AutismClientMessaging.sendPrefixed("§a[BaseWebhook] §fPosted find from §e" + e.source()
+                DihClientMessaging.sendPrefixed("§a[BaseWebhook] §fPosted find from §e" + e.source()
                     + "§f (" + e.confidence() + "%)");
             }
         }

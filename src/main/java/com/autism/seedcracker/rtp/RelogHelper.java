@@ -1,6 +1,6 @@
 package com.autism.seedcracker.rtp;
 
-import autismclient.util.AutismClientMessaging;
+import dihclient.util.DihClientMessaging;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.ConnectScreen;
 import net.minecraft.client.gui.screens.TitleScreen;
@@ -31,7 +31,7 @@ public final class RelogHelper {
                 MC.getConnection().getConnection().disconnect(Component.literal("Relog"));
                 return true;
             } catch (Throwable t2) {
-                AutismClientMessaging.sendPrefixed("§cRelog disconnect failed: " + t2.getMessage());
+                DihClientMessaging.sendPrefixed("§cRelog disconnect failed: " + t2.getMessage());
                 return false;
             }
         }
@@ -45,7 +45,7 @@ public final class RelogHelper {
             // Always parent to a fresh multiplayer screen: the previous screen may be gone after the world closed.
             ConnectScreen.startConnecting(new JoinMultiplayerScreen(new TitleScreen()), MC, address, server, false, null);
         } catch (Throwable t) {
-            AutismClientMessaging.sendPrefixed("§cRelog reconnect failed: " + t.getMessage());
+            DihClientMessaging.sendPrefixed("§cRelog reconnect failed: " + t.getMessage());
         }
     }
 }

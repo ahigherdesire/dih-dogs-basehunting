@@ -3,7 +3,7 @@ package com.autism.seedcracker.compat;
 import net.minecraft.client.Minecraft;
 
 /**
- * Obfuscation-proof inventory helpers. The client's AutismInventoryHelper util was renamed in
+ * Obfuscation-proof inventory helpers. The client's DihInventoryHelper util was renamed in
  * later (obfuscated) builds. selectHotbarSlot keeps the server in sync by setting the slot AND
  * calling the AUTISM ensureHasSentCarriedItem hook (which survived under its accessor name), with
  * a graceful client-only fallback if the hook shape ever changes. swapInventorySlots uses the
@@ -18,8 +18,8 @@ public final class ClientInventory {
         if (slot < 0 || slot > 8) return;
         mc.player.getInventory().setSelectedSlot(slot);
         try {
-            ((autismclient.mixin.accessor.AutismMultiPlayerGameModeAccessor) mc.gameMode)
-                .autism$ensureHasSentCarriedItem();
+            ((dihclient.mixin.accessor.DihMultiPlayerGameModeAccessor) mc.gameMode)
+                .dih$ensureHasSentCarriedItem();
         } catch (Throwable ignored) {
             // Hook shape changed: the slot is set client-side; the next vanilla carried-item
             // packet still syncs it shortly after. Acceptable degradation.

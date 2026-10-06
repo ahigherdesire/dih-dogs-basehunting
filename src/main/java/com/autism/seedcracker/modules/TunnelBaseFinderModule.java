@@ -4,12 +4,12 @@ import com.autism.seedcracker.compat.ModuleLookup;
 
 import com.autism.seedcracker.SeedcrackerAddon;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.EnumSetting;
-import autismclient.api.module.IntSetting;
-import autismclient.api.module.StringSetting;
-import autismclient.modules.Module;
-import autismclient.util.AutismClientMessaging;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.EnumSetting;
+import dihclient.api.module.IntSetting;
+import dihclient.api.module.StringSetting;
+import dihclient.modules.Module;
+import dihclient.util.DihClientMessaging;
 
 /**
  * TunnelBase Finder.
@@ -116,7 +116,7 @@ public final class TunnelBaseFinderModule extends Module {
     public void onEnable() {
         Module water = water();
         if (water == null) {
-            AutismClientMessaging.sendPrefixed("§cTunnelBase Finder: Water engine module is missing.");
+            DihClientMessaging.sendPrefixed("§cTunnelBase Finder: Water engine module is missing.");
             setEnabledSilently(false);
             return;
         }

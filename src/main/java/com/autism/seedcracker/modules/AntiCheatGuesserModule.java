@@ -3,9 +3,9 @@ package com.autism.seedcracker.modules;
 import com.autism.seedcracker.SeedcrackerAddon;
 import com.autism.seedcracker.util.FlagLog;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.modules.Module;
-import autismclient.util.AutismClientMessaging;
+import dihclient.api.module.BoolSetting;
+import dihclient.modules.Module;
+import dihclient.util.DihClientMessaging;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.common.ClientboundPingPacket;
 
@@ -92,7 +92,7 @@ public final class AntiCheatGuesserModule extends Module {
             FlagLog.info("ACID", "AntiCheatGuesser", "guess=" + guess + " sample=" + java.util.Arrays.toString(
                 java.util.Arrays.copyOf(arr, Math.min(10, arr.length))));
             if (announce.get()) {
-                AutismClientMessaging.sendPrefixed("§b[AC Guesser] §fAnti-cheat looks like: §e" + guess);
+                DihClientMessaging.sendPrefixed("§b[AC Guesser] §fAnti-cheat looks like: §e" + guess);
             }
         }
     }

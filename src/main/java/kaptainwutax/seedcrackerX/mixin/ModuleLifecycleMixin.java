@@ -11,7 +11,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * rotation / kick flags are correlated with exactly which modules were active - without editing
  * each of the ~48 modules individually. Fires on the Module base class lifecycle hooks.
  */
-@Mixin(value = autismclient.modules.Module.class, remap = false)
+@Mixin(value = dihclient.modules.Module.class, remap = false)
 public abstract class ModuleLifecycleMixin {
 
     @Inject(method = "onEnable", at = @At("HEAD"))

@@ -2,9 +2,9 @@ package com.autism.seedcracker.modules;
 
 import com.autism.seedcracker.SeedcrackerAddon;
 
-import autismclient.api.module.IntSetting;
-import autismclient.api.module.StringSetting;
-import autismclient.modules.Module;
+import dihclient.api.module.IntSetting;
+import dihclient.api.module.StringSetting;
+import dihclient.modules.Module;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.world.item.ItemStack;
@@ -161,7 +161,7 @@ public final class AhSellModule extends Module {
             try {
                 Long.parseLong(sellPrice.get().trim().replace(",", ""));
             } catch (NumberFormatException e) {
-                autismclient.util.AutismClientMessaging.sendPrefixed("§c[AH Sell] Invalid sell price. Disabling.");
+                dihclient.util.DihClientMessaging.sendPrefixed("§c[AH Sell] Invalid sell price. Disabling.");
                 setEnabledSilently(false);
                 return;
             }
@@ -172,7 +172,7 @@ public final class AhSellModule extends Module {
             guiActionDelay = 1;
         } else {
             // Nothing left to sell.
-            autismclient.util.AutismClientMessaging.sendPrefixed("§a[AH Sell] No more items to sell.");
+            dihclient.util.DihClientMessaging.sendPrefixed("§a[AH Sell] No more items to sell.");
             setEnabledSilently(false);
         }
     }

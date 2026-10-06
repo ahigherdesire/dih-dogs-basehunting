@@ -2,9 +2,9 @@ package com.autism.seedcracker.modules;
 
 import com.autism.seedcracker.SeedcrackerAddon;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.modules.Module;
-import autismclient.util.AutismClientMessaging;
+import dihclient.api.module.BoolSetting;
+import dihclient.modules.Module;
+import dihclient.util.DihClientMessaging;
 import net.minecraft.client.Minecraft;
 
 /**
@@ -73,7 +73,7 @@ public final class CoordinateProtectorModule extends Module {
         if (containsNumber(text, z)) hits++;
         if (hits < 2) return false;
 
-        AutismClientMessaging.sendPrefixed("§c[CoordProtector] §fBlocked a chat message containing your coordinates!");
+        DihClientMessaging.sendPrefixed("§c[CoordProtector] §fBlocked a chat message containing your coordinates!");
         return true; // cancel the send
     }
 

@@ -3,10 +3,10 @@ package com.autism.seedcracker.modules;
 import com.autism.seedcracker.SeedcrackerAddon;
 import com.example.donutflipscanner.ClientProductionRuntime;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.StringSetting;
-import autismclient.modules.Module;
-import autismclient.util.AutismClientMessaging;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.StringSetting;
+import dihclient.modules.Module;
+import dihclient.util.DihClientMessaging;
 import net.minecraft.client.Minecraft;
 
 import java.nio.file.Path;
@@ -44,11 +44,11 @@ public final class AHFlipperModule extends Module {
     @Override
     public void onEnable() {
         Minecraft mc = Minecraft.getInstance();
-        Path configDir = autismclient.AutismClientAddon.FOLDER.toPath().resolve("donut-ah");
+        Path configDir = dihclient.DihClientAddon.FOLDER.toPath().resolve("donut-ah");
         try {
             java.nio.file.Files.createDirectories(configDir);
         } catch (Exception e) {
-            AutismClientMessaging.sendPrefixed("§cAH Flipper: can't create config dir: " + e.getMessage());
+            DihClientMessaging.sendPrefixed("§cAH Flipper: can't create config dir: " + e.getMessage());
             setEnabledSilently(false);
             return;
         }
@@ -58,7 +58,7 @@ public final class AHFlipperModule extends Module {
             try {
                 java.nio.file.Files.writeString(configDir.resolve("api-key.txt"), key);
             } catch (Exception e) {
-                AutismClientMessaging.sendPrefixed("§eAH Flipper: couldn't save API key: " + e.getMessage());
+                DihClientMessaging.sendPrefixed("§eAH Flipper: couldn't save API key: " + e.getMessage());
             }
         }
 
@@ -67,7 +67,7 @@ public final class AHFlipperModule extends Module {
             ? mc.getUser().getProfileId().toString() : "";
 
         boolean live = liveMode.get() && !key.isEmpty();
-        AutismClientMessaging.sendPrefixed(live
+        DihClientMessaging.sendPrefixed(live
             ? "§aAH Flipper: starting live API mode..."
             : "§aAH Flipper: starting packet mode (open /ah to scan)...");
 
@@ -77,15 +77,15 @@ public final class AHFlipperModule extends Module {
 
         starting.whenComplete((opt, error) -> {
             if (error != null) {
-                AutismClientMessaging.sendPrefixed("§cAH Flipper failed to start: " + error.getMessage());
+                DihClientMessaging.sendPrefixed("§cAH Flipper failed to start: " + error.getMessage());
                 setEnabledSilently(false);
                 return;
             }
             if (opt != null && opt.isPresent()) {
                 runtime = opt.get();
-                AutismClientMessaging.sendPrefixed("§aAH Flipper running.");
+                DihClientMessaging.sendPrefixed("§aAH Flipper running.");
             } else {
-                AutismClientMessaging.sendPrefixed(live
+                DihClientMessaging.sendPrefixed(live
                     ? "§eAH Flipper: no valid API key found; falling back. Add a key for live mode."
                     : "§eAH Flipper: engine didn't start (mock mode).");
                 if (live) setEnabledSilently(false);
@@ -105,7 +105,7 @@ public final class AHFlipperModule extends Module {
             } catch (Exception ignored) {}
             runtime = null;
         }
-        AutismClientMessaging.sendPrefixed("§7AH Flipper stopped.");
+        DihClientMessaging.sendPrefixed("§7AH Flipper stopped.");
     }
 
     @Override

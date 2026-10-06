@@ -8,9 +8,9 @@ import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.builder.RequiredArgumentBuilder;
 
-import autismclient.commands.AutismCommandSource;
-import autismclient.commands.Command;
-import autismclient.util.AutismClientMessaging;
+import dihclient.commands.DihCommandSource;
+import dihclient.commands.Command;
+import dihclient.util.DihClientMessaging;
 
 /**
  * Intersects the texture cracker's and bedrock finder's most recent match lists: coordinates
@@ -27,12 +27,12 @@ public final class CrossCheckCommand extends Command {
     }
 
     @Override
-    public void build(LiteralArgumentBuilder<AutismCommandSource> root) {
+    public void build(LiteralArgumentBuilder<DihCommandSource> root) {
         root.executes(ctx -> {
             run(16);
             return SUCCESS;
         });
-        root.then(RequiredArgumentBuilder.<AutismCommandSource, Integer>argument("maxDist", IntegerArgumentType.integer(1, 10000))
+        root.then(RequiredArgumentBuilder.<DihCommandSource, Integer>argument("maxDist", IntegerArgumentType.integer(1, 10000))
             .executes(ctx -> {
                 run(IntegerArgumentType.getInteger(ctx, "maxDist"));
                 return SUCCESS;
@@ -85,6 +85,6 @@ public final class CrossCheckCommand extends Command {
     }
 
     private static void msg(String s) {
-        AutismClientMessaging.sendPrefixed(s);
+        DihClientMessaging.sendPrefixed(s);
     }
 }

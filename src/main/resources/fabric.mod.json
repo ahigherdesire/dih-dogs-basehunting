@@ -1,30 +1,30 @@
 {
   "schemaVersion": 1,
-  "id": "autism-seedcracker",
+  "id": "dogs-basehunting",
   "version": "${version}",
-  "name": "Dogs BaseHunting/QQL Tools",
-  "description": "A suite of seed-based tools for AUTISM Client: crack the world seed from structures/biomes, and locate your coordinates from a bedrock pattern.",
+  "name": "Dogs BaseHunting & Misc Tools",
+  "description": "Base hunting for DIH: SeedCrackerX seed cracking, bedrock/texture coordinate finders, stash/tunnel/chunk finders, DonutSMP AH tools and misc modules.",
   "authors": [
+    "doghero002-cmd",
     "KaptainWutax",
-    "19MisterX98",
-    "AUTISM addon port"
+    "19MisterX98"
   ],
   "license": "MIT",
   "icon": "assets/seedcrackerx/icon.png",
   "custom": {
-    "autism:color": "80,200,120",
     "modmenu": {
       "parent": {
-        "id": "autism"
+        "id": "dih"
       }
-    }
+    },
+    "dih:color": "80,200,120"
   },
   "environment": "client",
   "entrypoints": {
     "client": [
       "com.autism.seedcracker.SeedcrackerInit"
     ],
-    "autism": [
+    "dih": [
       "com.autism.seedcracker.SeedcrackerAddon"
     ]
   },
@@ -37,6 +37,11 @@
     "minecraft": "${mc_compat}",
     "fabricloader": ">=0.19.3",
     "fabric-api": ">=${fabric_api_version}",
-    "autism": "${autism_api_version}"
+    "dih": "${dih_api_version}"
+  },
+  "contact": {
+    "homepage": "https://dih.lxysg.com/addons#dogs-basehunting",
+    "sources": "https://github.com/ahigherdesire/dih-dogs-basehunting",
+    "issues": "https://github.com/ahigherdesire/dih-dogs-basehunting/issues"
   }
 }

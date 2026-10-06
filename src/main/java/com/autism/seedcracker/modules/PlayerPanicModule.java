@@ -6,11 +6,11 @@ import java.util.Locale;
 
 import com.autism.seedcracker.SeedcrackerAddon;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.IntSetting;
-import autismclient.api.module.StringSetting;
-import autismclient.modules.Module;
-import autismclient.util.AutismClientMessaging;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.IntSetting;
+import dihclient.api.module.StringSetting;
+import dihclient.modules.Module;
+import dihclient.util.DihClientMessaging;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.player.Player;
@@ -111,7 +111,7 @@ public final class PlayerPanicModule extends Module {
     private void react(Minecraft mc, List<String> threats) {
         String names = String.join(", ", threats);
         if (notify.get()) {
-            AutismClientMessaging.sendPrefixed("§c[PlayerPanic] §f" + names + " nearby - going dark!");
+            DihClientMessaging.sendPrefixed("§c[PlayerPanic] §f" + names + " nearby - going dark!");
         }
         // 1. Disable automation (go dark) FIRST so nothing keeps botting while we react.
         if (goDark.get()) disableAutomation();
@@ -144,7 +144,7 @@ public final class PlayerPanicModule extends Module {
             }
         }
         if (wanted.isEmpty()) return;
-        for (autismclient.modules.Module m : com.autism.seedcracker.compat.ModuleLookup.all()) {
+        for (dihclient.modules.Module m : com.autism.seedcracker.compat.ModuleLookup.all()) {
             if (m == null || m == this || !m.isEnabled()) continue;
             String id = m.id() == null ? "" : m.id().toLowerCase(Locale.ROOT);
             String suffix = id.contains(":") ? id.substring(id.lastIndexOf(':') + 1) : id;

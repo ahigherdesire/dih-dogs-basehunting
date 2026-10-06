@@ -12,12 +12,12 @@ import com.autism.seedcracker.SeedcrackerAddon;
 import com.autism.seedcracker.render.BlockEspRenderer;
 import com.autism.seedcracker.util.tunnel.LegitMovement;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.ColorSetting;
-import autismclient.api.module.EnumSetting;
-import autismclient.api.module.IntSetting;
-import autismclient.api.module.StringSetting;
-import autismclient.modules.Module;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.ColorSetting;
+import dihclient.api.module.EnumSetting;
+import dihclient.api.module.IntSetting;
+import dihclient.api.module.StringSetting;
+import dihclient.modules.Module;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -64,7 +64,7 @@ public final class SchematicBuilderModule extends Module {
 
     // ---- settings ----
     private final StringSetting schematicPath = add(new StringSetting("schematic-path", "Schematic file", "")
-        .description("Path to a .litematic / .schem / .schematic file (relative to the autism folder or absolute).")
+        .description("Path to a .litematic / .schem / .schematic file (relative to the DIH config folder or absolute).")
         .group("File"));
     private final BoolSetting load = add(new BoolSetting("load", "Load schematic", false)
         .description("Toggle on to (re)load the file above.").group("File"));
@@ -376,7 +376,7 @@ public final class SchematicBuilderModule extends Module {
             boolean sneakForContainer = pendingSneak || isContainer(mc, pendingHit.getBlockPos());
             if (sneakForContainer) mc.options.keyShift.setDown(true);
             mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, pendingHit);
-            mc.player.swing(InteractionHand.MAIN_HAND);
+            com.autism.seedcracker.compat.McCompat.swing(mc.player, InteractionHand.MAIN_HAND);
             if (sneakForContainer) mc.options.keyShift.setDown(false);
         }
         placed.add(task.worldPos);
@@ -548,7 +548,7 @@ public final class SchematicBuilderModule extends Module {
             if (!mc.level.getBlockState(hitPos).isAir() && mc.gameMode != null) {
                 mc.options.keyAttack.setDown(true);
                 mc.gameMode.continueDestroyBlock(hitPos, bhr.getDirection());
-                mc.player.swing(InteractionHand.MAIN_HAND);
+                com.autism.seedcracker.compat.McCompat.swing(mc.player, InteractionHand.MAIN_HAND);
             }
         }
         return true;
@@ -614,7 +614,7 @@ public final class SchematicBuilderModule extends Module {
         mc.player.setXRot(net.minecraft.util.Mth.clamp(rot[1], -90f, 90f));
         if (mc.gameMode != null) {
             mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, hit);
-            mc.player.swing(InteractionHand.MAIN_HAND);
+            com.autism.seedcracker.compat.McCompat.swing(mc.player, InteractionHand.MAIN_HAND);
         }
         tempBlocks.add(floor);
         return true;
@@ -834,7 +834,7 @@ public final class SchematicBuilderModule extends Module {
         String path = schematicPath.get() == null ? "" : schematicPath.get().trim();
         if (path.isEmpty()) { msg(mc, "Set a schematic file path first."); return; }
         File file = new File(path);
-        if (!file.isAbsolute()) file = autismclient.AutismClientAddon.FOLDER.toPath().resolve(path).toFile();
+        if (!file.isAbsolute()) file = dihclient.DihClientAddon.FOLDER.toPath().resolve(path).toFile();
         if (!file.exists()) { msg(mc, "Schematic not found: " + file.getPath()); return; }
 
         try {
@@ -994,7 +994,7 @@ public final class SchematicBuilderModule extends Module {
     }
 
     private static void msg(Minecraft mc, String s) {
-        autismclient.util.AutismClientMessaging.sendPrefixed("§d[Schematic] §f" + s);
+        dihclient.util.DihClientMessaging.sendPrefixed("§d[Schematic] §f" + s);
     }
 
     @Override public String info() {

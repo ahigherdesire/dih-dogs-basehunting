@@ -6,11 +6,11 @@ import java.util.concurrent.ConcurrentHashMap;
 import com.autism.seedcracker.SeedcrackerAddon;
 import com.autism.seedcracker.finder.ChunkFlagRenderer;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.ColorSetting;
-import autismclient.api.module.IntSetting;
-import autismclient.modules.Module;
-import autismclient.util.AutismClientMessaging;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.ColorSetting;
+import dihclient.api.module.IntSetting;
+import dihclient.modules.Module;
+import dihclient.util.DihClientMessaging;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.ChunkPos;
@@ -89,7 +89,7 @@ public final class PlayerChunksModule extends Module {
             String name = p.getPlainTextName();
             lastPlayer.put(cp, name);
             if (seenPlayers.add(name) && notify.get()) {
-                AutismClientMessaging.sendPrefixed("§b[PlayerChunks] §f" + name
+                DihClientMessaging.sendPrefixed("§b[PlayerChunks] §f" + name
                     + " seen at X:" + cp.getMinBlockX() + " Z:" + cp.getMinBlockZ());
             }
         }

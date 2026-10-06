@@ -2,9 +2,9 @@ package com.autism.seedcracker.modules;
 
 import com.autism.seedcracker.SeedcrackerAddon;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.modules.Module;
-import autismclient.util.AutismClientMessaging;
+import dihclient.api.module.BoolSetting;
+import dihclient.modules.Module;
+import dihclient.util.DihClientMessaging;
 import com.autism.seedcracker.compat.ClientNotify;
 import net.minecraft.client.Minecraft;
 
@@ -80,7 +80,7 @@ public final class WeatherNotifierModule extends Module {
 
     private void notify(String message) {
         if (chat.get()) {
-            AutismClientMessaging.sendPrefixed("§b[Weather] §f" + message);
+            DihClientMessaging.sendPrefixed("§b[Weather] §f" + message);
         }
         if (toast.get()) {
             ClientNotify.warning("Weather: " + message);

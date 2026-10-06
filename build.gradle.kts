@@ -2,9 +2,83 @@ plugins {
     alias(libs.plugins.fabric.loom)
 }
 
+// One jar per Minecraft version: `gradlew build` makes the 26.2 jar, `gradlew build -Pmc=26.3` the 26.3 one.
+// Each target pins the matching Fabric loader, Fabric API, cloth-config and DIH Client API (from mavenLocal:
+// run `gradlew publishToMavenLocal` in the DIH checkout for that Minecraft version first).
+data class Target(val minecraft: String, val loader: String, val fabricApi: String, val cloth: String, val dih: String)
+val targets = mapOf(
+    "26.2" to Target("26.2", "0.19.3", "0.152.2+26.2", "26.2.155", "5.0.1-26.2-dev"),
+    "26.3" to Target("26.3", "0.19.5", "0.161.0+26.3", "26.3.159", "5.0.1-26.3-dev"),
+)
+val target = targets[(findProperty("mc") as String?) ?: "26.2"] ?: error("Unknown -Pmc, use one of ${targets.keys}")
+val dihVersion = (findProperty("dih") as String?) ?: target.dih
+
+// Synced folders lock files mid-build; -PdihBuildDir=C:/somewhere builds outside them (one folder per Minecraft version).
+(findProperty("dihBuildDir") as String?)?.let { layout.buildDirectory.set(file("$it/${target.minecraft}")) }
+
+// Version-specific code uses DIH's Stonecutter-style blocks:
+//     //? if >=26.3 {
+//     /*code for 26.3
+//     *///?} else {
+//     code for 26.2
+//     //?}
+// The source compiles as-is for 26.2. For 26.3, preprocessSources writes a copy with the 26.3 block switched on
+// (the 26.2 block becomes blank lines, so line numbers in stack traces still match) plus the renames below.
+val mcReplacements = mapOf(
+    "26.3" to mapOf(
+        "net.minecraft.client.renderer.rendertype.DihRenderTypes" to "dihclient.render.mc.DihRenderTypes",
+        "RedStoneWireBlock" to "RedstoneWireBlock",
+        "VanillaRegistries.createLookup()" to "VanillaRegistries.createWorldLookup()",
+    ),
+)
+
+fun preprocess(text: String, mc: String): String {
+    val newer = mc != "26.2"
+    if (!newer) return text
+    val out = StringBuilder()
+    var state = 0 // 0 = outside, 1 = in the >=26.3 block, 2 = in the else block
+    var firstLine = false
+    for (line in text.split("\n")) {
+        val t = line.trim()
+        when {
+            state == 0 && t == "//? if >=26.3 {" -> { state = 1; firstLine = true; out.append("\n") }
+            state == 1 && t.startsWith("*///?} else {") -> { state = 2; out.append("\n") }
+            state == 1 -> { out.append(if (firstLine) line.replaceFirst("/*", "") else line).append("\n"); firstLine = false }
+            state == 2 && t == "//?}" -> { state = 0; out.append("\n") }
+            state == 2 -> out.append("\n")
+            else -> out.append(line).append("\n")
+        }
+    }
+    check(state == 0) { "Unclosed //? block" }
+    var result = out.toString().removeSuffix("\n")
+    for ((from, to) in mcReplacements[mc].orEmpty()) result = result.replace(from, to)
+    return result
+}
+
+val preprocessedDir = layout.buildDirectory.dir("preprocessed/${target.minecraft}/java")
+val preprocessSources by tasks.registering {
+    val src = file("src/main/java")
+    inputs.dir(src)
+    inputs.property("mc", target.minecraft)
+    outputs.dir(preprocessedDir)
+    doLast {
+        val out = preprocessedDir.get().asFile
+        out.deleteRecursively()
+        src.walkTopDown().filter { it.isFile }.forEach { f ->
+            val dest = out.resolve(f.relativeTo(src))
+            dest.parentFile.mkdirs()
+            if (f.extension == "java") dest.writeText(preprocess(f.readText(), target.minecraft)) else f.copyTo(dest)
+        }
+    }
+}
+if (target.minecraft != "26.2") {
+    sourceSets.main { java.setSrcDirs(listOf(preprocessedDir)) }
+    tasks.named("compileJava") { dependsOn(preprocessSources) }
+}
+
 base {
     archivesName = properties["archives_base_name"] as String
-    version = libs.versions.mod.version.get()
+    version = libs.versions.mod.version.get() + "-" + target.minecraft
     group = properties["maven_group"] as String
 }
 
@@ -13,12 +87,7 @@ loom {
 }
 
 repositories {
-    // The AUTISM Client API is vendored into libs/ so the build is self-contained (works on a
-    // fresh CI runner with an empty ~/.m2). flatDir resolves com.autismclient:autism:<ver> from
-    // libs/autism-<ver>.jar. To upgrade, drop the new jar in libs/ and bump `autism` in
-    // gradle/libs.versions.toml.
-    flatDir { dirs("libs") }
-    // Keep mavenLocal as a fallback for local dev where you may publish a newer build.
+    // DIH Client API, published to mavenLocal from the DIH checkout.
     mavenLocal()
     maven("https://maven.fabricmc.net/") { name = "Fabric" }
     mavenCentral()
@@ -31,20 +100,27 @@ repositories {
 }
 
 dependencies {
-    // Mirrors the AUTISM Client build: official Mojang mappings are implicit for the configured version, so there is no
+    // Mirrors the DIH Client build: official Mojang mappings are implicit for the configured version, so there is no
     // explicit `mappings(...)` line and dependencies use plain `implementation`.
-    minecraft(libs.minecraft)
-    implementation(libs.fabric.loader)
-    implementation(libs.fabric.api)
+    minecraft("com.mojang:minecraft:${target.minecraft}")
+    implementation("net.fabricmc:fabric-loader:${target.loader}")
+    implementation("net.fabricmc.fabric-api:fabric-api:${target.fabricApi}")
 
-    // The AUTISM Client API (published to mavenLocal from the AUTISM project).
-    implementation(libs.autism)
+    // The DIH Client API (published to mavenLocal from the DIH project).
+    // Non-transitive: DIH's own runtime libraries (Baritone natives etc.) ship inside the DIH jar.
+    // -PdihJar=<path> compiles against a released DIH jar instead (e.g. DIH-Client-5.0.1-26.3.jar).
+    val dihJar = findProperty("dihJar") as String?
+    if (dihJar != null) {
+        compileOnly(files(dihJar))
+    } else {
+        implementation("com.dihclient:dih:$dihVersion") { isTransitive = false }
+    }
 
     // ---- SeedcrackerX dependencies (bundled jar-in-jar so the addon is self-contained) ----
     // Each library is both an `implementation` (compile classpath) and `include` (jar-in-jar).
 
     // cloth-config (config GUI). Exclude transitive fabric-api to avoid duplicates.
-    val clothConfig = "me.shedaniel.cloth:cloth-config-fabric:${property("cloth_config_version")}"
+    val clothConfig = "me.shedaniel.cloth:cloth-config-fabric:${target.cloth}"
     implementation(clothConfig) { exclude(group = "net.fabricmc.fabric-api") }
     include(clothConfig) { exclude(group = "net.fabricmc.fabric-api") }
 
@@ -100,15 +176,12 @@ fun toMinecraftCompat(version: String): String {
 tasks {
     processResources {
         val propertyMap = mapOf(
-            "version" to project.version,
-            "mc_version" to libs.versions.minecraft.get(),
-            "mc_compat" to toMinecraftCompat(libs.versions.minecraft.get()),
-            "fabric_api_version" to libs.versions.fabric.api.get(),
-            // The runtime constraint is intentionally not pinned to a specific client version:
-            // a bare "*" tells Fabric "any AUTISM Client version", and AUTISM's own apiVersion()
-            // handshake gates real compatibility, so the addon loads against any client build
-            // (release or dev) rather than requiring the exact version it was compiled against.
-            "autism_api_version" to "*"
+            "version" to libs.versions.mod.version.get(),
+            "mc_version" to target.minecraft,
+            "mc_compat" to toMinecraftCompat(target.minecraft),
+            "fabric_api_version" to target.fabricApi,
+            // DIH's own apiVersion() handshake gates real API compatibility.
+            "dih_api_version" to ">=5.0.0"
         )
         inputs.properties(propertyMap)
         filteringCharset = "UTF-8"

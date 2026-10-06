@@ -15,10 +15,10 @@ import java.util.concurrent.CompletableFuture;
 
 import com.autism.seedcracker.SeedcrackerAddon;
 
-import autismclient.api.module.IntSetting;
-import autismclient.api.module.StringSetting;
-import autismclient.modules.Module;
-import autismclient.util.AutismClientMessaging;
+import dihclient.api.module.IntSetting;
+import dihclient.api.module.StringSetting;
+import dihclient.modules.Module;
+import dihclient.util.DihClientMessaging;
 import com.autism.seedcracker.compat.ClientNotify;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
@@ -65,15 +65,15 @@ public final class SpawnerProtectModule extends Module {
             "enemy-radius", "Enemy radius", 32, 4, 64, 1)
         .description("How close an enemy player must be before spawners are protected.")
         .group("General"));
-    private final autismclient.api.module.BoolSetting sneakMine = add(new autismclient.api.module.BoolSetting(
+    private final dihclient.api.module.BoolSetting sneakMine = add(new dihclient.api.module.BoolSetting(
             "sneak-mine", "Sneak mine (hold shift)", true)
         .description("Hold shift while mining the spawner (DonutSMP shift-mine drops it as an item into your inventory).")
         .group("Storage"));
-    private final autismclient.api.module.BoolSetting storeShulker = add(new autismclient.api.module.BoolSetting(
+    private final dihclient.api.module.BoolSetting storeShulker = add(new dihclient.api.module.BoolSetting(
             "store-shulker", "Store in shulker", true)
         .description("After collecting, put the spawners into a shulker box from your inventory.")
         .group("Storage"));
-    private final autismclient.api.module.BoolSetting storeEChest = add(new autismclient.api.module.BoolSetting(
+    private final dihclient.api.module.BoolSetting storeEChest = add(new dihclient.api.module.BoolSetting(
             "store-echest", "Shulker into ender chest", true)
         .description("After filling the shulker, put the shulker box into your ender chest (shift-click while the echest is open).")
         .group("Storage")
@@ -170,7 +170,7 @@ public final class SpawnerProtectModule extends Module {
             BlockPos hitPos = bhr.getBlockPos();
             if (isSpawner(mc, hitPos) && mc.gameMode != null) {
                 mc.gameMode.continueDestroyBlock(hitPos, bhr.getDirection());
-                mc.player.swing(net.minecraft.world.InteractionHand.MAIN_HAND);
+                com.autism.seedcracker.compat.McCompat.swing(mc.player, net.minecraft.world.InteractionHand.MAIN_HAND);
             }
         }
 
@@ -337,7 +337,7 @@ public final class SpawnerProtectModule extends Module {
 
     /** Unified local feedback (chat prefix + toast), matching the other finder modules. */
     private void notifyLocal(String msg) {
-        autismclient.util.AutismClientMessaging.sendPrefixed("§5[SpawnerProtect] §f" + msg);
+        dihclient.util.DihClientMessaging.sendPrefixed("§5[SpawnerProtect] §f" + msg);
         ClientNotify.warning("SpawnerProtect: " + msg);
     }
 
@@ -416,7 +416,7 @@ public final class SpawnerProtectModule extends Module {
                 net.minecraft.core.Direction side = facingToward(mc, placedShulkerPos);
                 mc.gameMode.startDestroyBlock(placedShulkerPos, side);
                 mc.gameMode.continueDestroyBlock(placedShulkerPos, side);
-                mc.player.swing(net.minecraft.world.InteractionHand.MAIN_HAND);
+                com.autism.seedcracker.compat.McCompat.swing(mc.player, net.minecraft.world.InteractionHand.MAIN_HAND);
                 if (mc.level.getBlockState(placedShulkerPos).isAir()) {
                     if (mc.gameMode != null) mc.gameMode.stopDestroyBlock();
                     placedShulkerPos = null;
@@ -543,7 +543,7 @@ public final class SpawnerProtectModule extends Module {
                     .timeout(HTTP_TIMEOUT)
                     .header("Content-Type", "application/json")
                     .header("Accept", "application/json")
-                    .header("User-Agent", "autism-SpawnerProtect")
+                    .header("User-Agent", "dogs-basehunting-SpawnerProtect")
                     .POST(HttpRequest.BodyPublishers.ofString(json))
                     .build();
                 HTTP.send(request, HttpResponse.BodyHandlers.ofString());
@@ -584,7 +584,7 @@ public final class SpawnerProtectModule extends Module {
     }
 
     private void warn(String message) {
-        AutismClientMessaging.sendPrefixed("§c[SpawnerProtect] §f" + message);
+        DihClientMessaging.sendPrefixed("§c[SpawnerProtect] §f" + message);
     }
 
     @Override

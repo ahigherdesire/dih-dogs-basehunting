@@ -7,13 +7,13 @@ import com.autism.seedcracker.commands.TextureCrackCommand;
 import com.autism.seedcracker.texturecrack.TextureCrackEngine;
 import com.autism.seedcracker.texturecrack.TextureCrackImageScreen;
 
-import autismclient.api.module.ActionSetting;
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.EnumSetting;
-import autismclient.api.module.IntSetting;
-import autismclient.api.module.StringSetting;
-import autismclient.modules.Module;
-import autismclient.util.AutismClientMessaging;
+import dihclient.api.module.ActionSetting;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.EnumSetting;
+import dihclient.api.module.IntSetting;
+import dihclient.api.module.StringSetting;
+import dihclient.modules.Module;
+import dihclient.util.DihClientMessaging;
 import net.minecraft.client.Minecraft;
 
 /**
@@ -108,7 +108,7 @@ public final class TextureCrackerModule extends Module {
         String path = imagePath.get().trim();
         File file = resolveImage(path);
         if (file == null || !file.exists()) {
-            AutismClientMessaging.sendPrefixed("§cTexture Cracker: image not found" +
+            DihClientMessaging.sendPrefixed("§cTexture Cracker: image not found" +
                 (path.equalsIgnoreCase("latest") ? " - take a screenshot first (F2)." : ": " + path));
             return;
         }
@@ -118,7 +118,7 @@ public final class TextureCrackerModule extends Module {
                 mc.gui.setScreen(new TextureCrackImageScreen(mc.gui.screen(), file,
                     TextureCrackCommand.blockName, size, size));
             } catch (Throwable t) {
-                AutismClientMessaging.sendPrefixed("§cTexture Cracker: failed to open GUI: " + t.getMessage());
+                DihClientMessaging.sendPrefixed("§cTexture Cracker: failed to open GUI: " + t.getMessage());
             }
         });
     }
@@ -126,7 +126,7 @@ public final class TextureCrackerModule extends Module {
     private void doSolve() {
         applySettings();
         if (TextureCrackCommand.grid == null) {
-            AutismClientMessaging.sendPrefixed("§cTexture Cracker: read a grid first (Open GUI -> Read grid), or set one with .texcrack grid.");
+            DihClientMessaging.sendPrefixed("§cTexture Cracker: read a grid first (Open GUI -> Read grid), or set one with .texcrack grid.");
             return;
         }
         TextureCrackCommand.solve();
@@ -138,7 +138,7 @@ public final class TextureCrackerModule extends Module {
         if (TextureCrackCommand.grid != null) {
             for (int[] row : TextureCrackCommand.grid) for (int v : row) if (v >= 0) known++;
         }
-        AutismClientMessaging.sendPrefixed("§7[TextureCracker] " + TextureCrackEngine.status
+        DihClientMessaging.sendPrefixed("§7[TextureCracker] " + TextureCrackEngine.status
             + " | grid " + (TextureCrackCommand.grid == null ? "unset" : known + " known cells")
             + " | Y=" + yLevel.get() + (yRange.get() > 0 ? "+-" + yRange.get() : "")
             + " | r=" + String.format("%,d", radius.get()) + " | tol=" + tolerance.get()

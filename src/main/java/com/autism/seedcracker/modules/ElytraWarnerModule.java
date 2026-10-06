@@ -2,10 +2,10 @@ package com.autism.seedcracker.modules;
 
 import com.autism.seedcracker.SeedcrackerAddon;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.IntSetting;
-import autismclient.modules.Module;
-import autismclient.util.AutismClientMessaging;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.IntSetting;
+import dihclient.modules.Module;
+import dihclient.util.DihClientMessaging;
 import com.autism.seedcracker.compat.ClientNotify;
 import net.minecraft.client.Minecraft;
 import net.minecraft.sounds.SoundEvents;
@@ -62,7 +62,7 @@ public final class ElytraWarnerModule extends Module {
             if (autoSwap.get() && trySwapToSpare(mc, chest)) {
                 warned = false;
                 if (notify.get()) {
-                    AutismClientMessaging.sendPrefixed("§a[Elytra Warner] Swapped to a fresh elytra.");
+                    DihClientMessaging.sendPrefixed("§a[Elytra Warner] Swapped to a fresh elytra.");
                 }
                 return;
             }
@@ -71,7 +71,7 @@ public final class ElytraWarnerModule extends Module {
                 if (notify.get()) {
                     String msg = "Elytra low: " + pct + "% (" + remaining + "/" + max + ")";
                     ClientNotify.warning(msg);
-                    AutismClientMessaging.sendPrefixed("§c[Elytra Warner] §f" + msg);
+                    DihClientMessaging.sendPrefixed("§c[Elytra Warner] §f" + msg);
                     mc.player.playSound(SoundEvents.EXPERIENCE_ORB_PICKUP, 1.0f, 0.6f);
                 }
             }

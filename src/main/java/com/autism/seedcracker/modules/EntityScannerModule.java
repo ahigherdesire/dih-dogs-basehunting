@@ -5,8 +5,8 @@ import com.autism.seedcracker.compat.ClientNotify;
 import com.autism.seedcracker.SeedcrackerAddon;
 import com.autism.seedcracker.finder.ChunkScanHelper;
 
-import autismclient.api.module.IntSetting;
-import autismclient.modules.Module;
+import dihclient.api.module.IntSetting;
+import dihclient.modules.Module;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.animal.Animal;
@@ -48,12 +48,12 @@ public final class EntityScannerModule extends Module {
     private final Set<ChunkPos> notified = ConcurrentHashMap.newKeySet();
     private int tickCounter = 0;
 
-    private final autismclient.api.module.EnumSetting<Mode> mode = add(
-        new autismclient.api.module.EnumSetting<>("mode", "Mode", Mode.WEIGHTED, Mode.values())
+    private final dihclient.api.module.EnumSetting<Mode> mode = add(
+        new dihclient.api.module.EnumSetting<>("mode", "Mode", Mode.WEIGHTED, Mode.values())
         .description("WEIGHTED = all entities scored. STORAGE = container/frame/stand entities. OWNED = tamed/named/leashed (player-owned). DROPS = item clusters.")
         .group("General"));
-    private final autismclient.api.module.EnumSetting<com.autism.seedcracker.finder.FinderSensitivity> sensitivity = add(
-        new autismclient.api.module.EnumSetting<>("sensitivity", "Sensitivity",
+    private final dihclient.api.module.EnumSetting<com.autism.seedcracker.finder.FinderSensitivity> sensitivity = add(
+        new dihclient.api.module.EnumSetting<>("sensitivity", "Sensitivity",
             com.autism.seedcracker.finder.FinderSensitivity.MEDIUM, com.autism.seedcracker.finder.FinderSensitivity.values())
         .description("HIGH = flag on half the threshold (more finds, more noise). LOW = double (quiet, high confidence).")
         .group("General"));

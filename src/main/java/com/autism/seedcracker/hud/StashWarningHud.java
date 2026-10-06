@@ -1,6 +1,6 @@
 package com.autism.seedcracker.hud;
 
-import autismclient.api.hud.HudElementProvider;
+import dihclient.api.hud.HudElementProvider;
 import com.autism.seedcracker.SeedcrackerAddon;
 import com.autism.seedcracker.rtp.DonutRTPStashFinderModule;
 import com.autism.seedcracker.rtp.RelogLoaderModule;

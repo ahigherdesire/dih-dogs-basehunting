@@ -1,17 +1,51 @@
 <div align="center">
 
-<img src="docs/readme-banner.svg" alt="Dogs BaseHunting / QQL Tools" width="900">
+<img src="docs/card.png" alt="Dogs BaseHunting & Misc Tools" width="640">
 
-# Dogs BaseHunting / QQL Tools
+# Dogs BaseHunting & Misc Tools for DIH Client
 
-**Base hunting, stash discovery, and DonutSMP utilities for AUTISM Client**
+**Base hunting, stash discovery, and DonutSMP utilities, ported to [DIH Client](https://dih.lxysg.com) from
+[doghero002-cmd's AUTISM Client addon](https://github.com/doghero002-cmd/autism-client-basehunting-misc-tools)**
 
-[![Minecraft](https://img.shields.io/badge/Minecraft-26.2-52a535?style=flat-square&logo=minecraft&logoColor=white)](https://www.minecraft.net/)
+[![Minecraft](https://img.shields.io/badge/Minecraft-26.2%20%7C%2026.3-52a535?style=flat-square&logo=minecraft&logoColor=white)](https://www.minecraft.net/)
 [![Fabric](https://img.shields.io/badge/Fabric-0.19.3%2B-dbd0b3?style=flat-square)](https://fabricmc.net/)
 [![Java](https://img.shields.io/badge/Java-25%2B-e76f51?style=flat-square&logo=openjdk&logoColor=white)](https://adoptium.net/)
 [![License](https://img.shields.io/badge/license-The%20Unlicense-f4a261?style=flat-square)](LICENSE)
 
 </div>
+
+## DIH Client version
+
+This repo is the addon ported to **DIH Client** for Minecraft **26.2 and 26.3**. It loads as a DIH addon (`dih`
+entrypoint, id `dogs-basehunting`). Install it from DIH's in-game **Addons → Browse Online**, from
+[dih.lxysg.com/addons](https://dih.lxysg.com/addons#dogs-basehunting), or take the jar for your Minecraft version from
+[Releases](https://github.com/ahigherdesire/dih-dogs-basehunting/releases) into your `mods` folder next to DIH.
+All credit for the original addon goes to doghero002-cmd; the git history is kept.
+
+```sh
+# 26.2 (needs DIH's API in mavenLocal: run `gradlew publishToMavenLocal` in the DIH checkout)
+./gradlew build -PdihBuildDir=C:/dih-build/dogs
+# 26.3 (compiles against the released DIH jar)
+./gradlew build -Pmc=26.3 -PdihJar=path/to/DIH-Client-5.0.1-26.3.jar -PdihBuildDir=C:/dih-build/dogs
+```
+
+Version-specific code sits in `//? if >=26.3` blocks (mostly `compat/McCompat`), DIH's Stonecutter convention;
+`preprocessSources` in `build.gradle.kts` switches them for 26.3.
+
+Left out of the DIH version:
+
+- **Already in DIH:** Sprint, Free Look, Auto Tool, Name Protect (DIH NameCensor), Scoreboard Hider (DIH NoRender),
+  Fast Place (DIH FastUse), Fake Latency (DIH PingSpoof), Seed Ray (DIH OreSim), Swing Speed (DIH Viewmodel),
+  the Session Stats HUD (built into DIH) and TPA Spammer (DIH Spam). Hole ESP is renamed **Shaft ESP**, since
+  DIH's HoleESP is the PvP safe-hole kind.
+- **Not carried over:** Fake Pay, Fake Payments, Fake Roles and the Fake Scoreboard HUD, which fake payment or
+  staff-rank messages to other players; and Skin Changer, which only stored settings.
+
+Network use is opt-in per feature: the SeedCrackerX seed database (off by default), DonutSMP's API (AH tools and
+Balance Tags, your key), OpenAI (Chat Games, your key), Google Translate (Translate) and a Discord webhook you set
+(Base Webhook).
+
+---
 
 A client-side addon for the AUTISM Client that bundles base-finding tools for DonutSMP, including
 seed cracking, coordinate finding, RTP stash hunting, an auction-house flipper, and a broader set of

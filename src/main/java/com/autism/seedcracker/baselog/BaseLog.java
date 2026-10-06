@@ -9,7 +9,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
-import autismclient.AutismClientAddon;
+import dihclient.DihClientAddon;
 import net.minecraft.client.Minecraft;
 
 /**
@@ -53,7 +53,7 @@ public final class BaseLog {
     }
 
     public static Path file() {
-        return AutismClientAddon.FOLDER.toPath().resolve("bases.txt");
+        return DihClientAddon.FOLDER.toPath().resolve("bases.txt");
     }
 
     /** Parse every line in bases.txt. Malformed lines are skipped. */

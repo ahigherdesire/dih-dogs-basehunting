@@ -2,9 +2,9 @@ package com.autism.seedcracker.modules;
 
 import com.autism.seedcracker.SeedcrackerAddon;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.modules.Module;
-import autismclient.util.AutismClientMessaging;
+import dihclient.api.module.BoolSetting;
+import dihclient.modules.Module;
+import dihclient.util.DihClientMessaging;
 import net.minecraft.client.Minecraft;
 
 /**
@@ -24,7 +24,7 @@ public final class AutoRenderModule extends Module {
     private final BoolSetting sound = add(new BoolSetting("sound", "Notification sound", true)
         .description("Play a sound with the notification.")
         .group("General"));
-    private final autismclient.api.module.IntSetting holdTicks = add(new autismclient.api.module.IntSetting(
+    private final dihclient.api.module.IntSetting holdTicks = add(new dihclient.api.module.IntSetting(
             "hold-ticks", "Boost hold (ticks)", 20, 5, 200, 5)
         .description("How long the temporary render boost lasts.")
         .group("General"));
@@ -89,7 +89,7 @@ public final class AutoRenderModule extends Module {
                 mc.options.simulationDistance().set(2);
             } catch (Throwable ignored) {}
             if (notification.get() && !notified) {
-                AutismClientMessaging.sendPrefixed("§7Auto Render: boosting render/sim distance below Y=-2.");
+                DihClientMessaging.sendPrefixed("§7Auto Render: boosting render/sim distance below Y=-2.");
                 if (sound.get()) {
                     mc.player.playSound(net.minecraft.sounds.SoundEvents.EXPERIENCE_ORB_PICKUP, 1.0f, 1.0f);
                 }

@@ -2,11 +2,11 @@ package com.autism.seedcracker.modules;
 
 import com.autism.seedcracker.SeedcrackerAddon;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.IntSetting;
-import autismclient.api.module.StringSetting;
-import autismclient.modules.Module;
-import autismclient.util.AutismClientMessaging;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.IntSetting;
+import dihclient.api.module.StringSetting;
+import dihclient.modules.Module;
+import dihclient.util.DihClientMessaging;
 import com.autism.seedcracker.compat.ClientNotify;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.TitleScreen;
@@ -154,7 +154,7 @@ public final class AutoLogModule extends Module {
         if (reason != null) {
             loggedOut = true;
             if (notify.get()) {
-                AutismClientMessaging.sendPrefixed("§c[Auto Log] Disconnecting: §f" + reason);
+                DihClientMessaging.sendPrefixed("§c[Auto Log] Disconnecting: §f" + reason);
                 ClientNotify.warning("Auto Log: " + reason);
             }
             disconnect(mc, reason);

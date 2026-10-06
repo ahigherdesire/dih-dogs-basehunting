@@ -6,10 +6,10 @@ import java.util.List;
 import com.autism.seedcracker.SeedcrackerAddon;
 import com.autism.seedcracker.hud.RegionMapHud;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.EnumSetting;
-import autismclient.api.module.IntSetting;
-import autismclient.modules.Module;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.EnumSetting;
+import dihclient.api.module.IntSetting;
+import dihclient.modules.Module;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.VanillaHudElements;
 import net.minecraft.client.DeltaTracker;
@@ -69,16 +69,16 @@ public final class RegionMapModule extends Module {
     private final BoolSetting autoHeatmap = add(new BoolSetting("auto-heatmap", "Auto-update heatmap", true)
         .description("ON = finds update the heatmap automatically. OFF = finds queue up and only update when you confirm (via /heatconfirm).")
         .group("Heatmap"));
-    private final autismclient.api.module.StringSetting globalHeatUrl = add(new autismclient.api.module.StringSetting(
+    private final dihclient.api.module.StringSetting globalHeatUrl = add(new dihclient.api.module.StringSetting(
             "global-heat-url", "Global heatmap URL", "")
         .description("Optional: a URL (e.g. a GitHub raw JSON) with a shared base-find heatmap, fetched + merged into the overlay.")
         .group("Heatmap"));
     private final BoolSetting useCustomImage = add(new BoolSetting("use-custom-image", "Custom map image", false)
         .description("Override the built-in region map with your own PNG (set the path below).")
         .group("Image"));
-    private final autismclient.api.module.StringSetting imagePath = add(new autismclient.api.module.StringSetting(
+    private final dihclient.api.module.StringSetting imagePath = add(new dihclient.api.module.StringSetting(
             "image-path", "Image path", "regionmap.png")
-        .description("Path to a PNG (relative to the autism client folder, or absolute) used instead of the built-in map.")
+        .description("Path to a PNG (relative to the DIH config folder, or absolute) used instead of the built-in map.")
         .group("Image")
         .visibleWhen(() -> useCustomImage.get()));
 
@@ -472,7 +472,7 @@ public final class RegionMapModule extends Module {
         try {
             java.nio.file.Path file = java.nio.file.Path.of(path);
             if (!file.isAbsolute()) {
-                file = autismclient.AutismClientAddon.FOLDER.toPath().resolve(path);
+                file = dihclient.DihClientAddon.FOLDER.toPath().resolve(path);
             }
             if (!java.nio.file.Files.exists(file)) { loadedImagePath = null; return; }
             com.mojang.blaze3d.platform.NativeImage img;

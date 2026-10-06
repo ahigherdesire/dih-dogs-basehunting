@@ -3,7 +3,6 @@ package kaptainwutax.seedcrackerX.command;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
-import net.minecraft.util.Util;
 
 import java.net.URI;
 
@@ -22,7 +21,7 @@ public class DatabaseCommand extends ClientCommand {
     }
 
     public int openURL(CommandContext<FabricClientCommandSource> context) {
-        Util.getPlatform().openUri(DATABASE_URL);
+        com.autism.seedcracker.compat.McCompat.openUri(DATABASE_URL);
         return 0;
     }
 }

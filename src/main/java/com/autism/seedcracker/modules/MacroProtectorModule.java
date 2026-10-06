@@ -5,10 +5,10 @@ import com.autism.seedcracker.compat.ModuleLookup;
 import com.autism.seedcracker.SeedcrackerAddon;
 import com.autism.seedcracker.util.FlagLog;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.IntSetting;
-import autismclient.modules.Module;
-import autismclient.util.AutismClientMessaging;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.IntSetting;
+import dihclient.modules.Module;
+import dihclient.util.DihClientMessaging;
 import com.autism.seedcracker.compat.ClientNotify;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.protocol.Packet;
@@ -90,7 +90,7 @@ public final class MacroProtectorModule extends Module {
         if (mc.player.tickCount < 100) return;
 
         java.util.List<String> stopped = new java.util.ArrayList<>();
-        for (autismclient.modules.Module m : ModuleLookup.all()) {
+        for (dihclient.modules.Module m : ModuleLookup.all()) {
             if (!m.isEnabled()) continue;
             String simple = m.getClass().getSimpleName();
             if (AUTOMATION_IDS.contains(simple)) {
@@ -107,7 +107,7 @@ public final class MacroProtectorModule extends Module {
         lastTripMs = now;
         FlagLog.flag("MACRO", "MacroProtector", reason + " -> stopped " + String.join(",", stopped));
         if (notifyChat.get()) {
-            AutismClientMessaging.sendPrefixed("§c[MacroProtector] §f" + reason
+            DihClientMessaging.sendPrefixed("§c[MacroProtector] §f" + reason
                 + " detected! Stopped: §e" + String.join("§f, §e", stopped));
         }
         if (notifyToast.get()) {

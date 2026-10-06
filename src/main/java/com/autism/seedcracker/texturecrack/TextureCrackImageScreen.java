@@ -183,7 +183,7 @@ public final class TextureCrackImageScreen extends Screen {
         }
         if (known == 0) { status = "Grid has no known cells"; return; }
         try {
-            java.nio.file.Path f = autismclient.AutismClientAddon.FOLDER.toPath().resolve("rotation-pattern.txt");
+            java.nio.file.Path f = dihclient.DihClientAddon.FOLDER.toPath().resolve("rotation-pattern.txt");
             java.nio.file.Files.createDirectories(f.getParent());
             java.nio.file.Files.write(f, lines);
             sendMessage("§a[TexCrack] Grid exported (" + known + " cells) to §f" + f.getFileName());

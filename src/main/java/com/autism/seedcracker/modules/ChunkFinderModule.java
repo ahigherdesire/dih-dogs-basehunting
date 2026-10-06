@@ -13,11 +13,11 @@ import java.util.concurrent.atomic.AtomicInteger;
 import com.autism.seedcracker.SeedcrackerAddon;
 import com.autism.seedcracker.finder.ChunkFlagRenderer;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.ColorSetting;
-import autismclient.api.module.IntSetting;
-import autismclient.modules.Module;
-import autismclient.util.AutismClientMessaging;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.ColorSetting;
+import dihclient.api.module.IntSetting;
+import dihclient.modules.Module;
+import dihclient.util.DihClientMessaging;
 import com.autism.seedcracker.compat.ClientNotify;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
@@ -52,8 +52,8 @@ public final class ChunkFinderModule extends Module {
     private static final int MAX_CONCURRENT = 16;
     private static final long RESCAN_MS = 5000L;
 
-    private final autismclient.api.module.EnumSetting<com.autism.seedcracker.finder.FinderSensitivity> sensitivity = add(
-        new autismclient.api.module.EnumSetting<>("sensitivity", "Sensitivity",
+    private final dihclient.api.module.EnumSetting<com.autism.seedcracker.finder.FinderSensitivity> sensitivity = add(
+        new dihclient.api.module.EnumSetting<>("sensitivity", "Sensitivity",
             com.autism.seedcracker.finder.FinderSensitivity.HIGH, com.autism.seedcracker.finder.FinderSensitivity.values())
         .description("Scales all signal thresholds: HIGH = shorter veins/fewer blocks flag (more noise), LOW = doubled (only unmistakable).")
         .group("General"));
@@ -429,7 +429,7 @@ public final class ChunkFinderModule extends Module {
         if (!notify.get()) return;
         String msg = reasons + " (X:" + x + " Z:" + z + ")";
         ClientNotify.warning("Chunk: " + msg);
-        AutismClientMessaging.sendPrefixed("§6[ChunkFinder] §f" + msg);
+        DihClientMessaging.sendPrefixed("§6[ChunkFinder] §f" + msg);
         Minecraft mc = Minecraft.getInstance();
         if (mc.player != null) mc.player.playSound(SoundEvents.EXPERIENCE_ORB_PICKUP, 1.0f, 0.9f);
     }

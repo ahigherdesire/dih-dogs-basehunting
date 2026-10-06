@@ -35,8 +35,8 @@ public abstract class ClientPacketListenerMixin {
 
     @Inject(method = "handleLevelChunkWithLight", at = @At(value = "TAIL"))
     private void onChunkData(ClientboundLevelChunkWithLightPacket packet, CallbackInfo ci) {
-        int chunkX = packet.getX();
-        int chunkZ = packet.getZ();
+        int chunkX = com.autism.seedcracker.compat.McCompat.chunkX(packet);
+        int chunkZ = com.autism.seedcracker.compat.McCompat.chunkZ(packet);
         FinderQueue.get().onChunkData(this.level, new ChunkPos(chunkX, chunkZ));
         // Netherite Finder: hand the raw chunk buffer to the palette scanner so it can reveal
         // ancient debris the server hid from the client's block view.
@@ -45,7 +45,7 @@ public abstract class ClientPacketListenerMixin {
                 com.autism.seedcracker.SeedcrackerAddon.ID + ":netherite-finder");
         if (module != null && module.isEnabled() && this.level != null) {
             try {
-                module.onChunkData(packet.getChunkData().getReadBuffer(), chunkX, chunkZ,
+                module.onChunkData(com.autism.seedcracker.compat.McCompat.chunkData(packet).getReadBuffer(), chunkX, chunkZ,
                     this.level.getSectionsCount(), this.level.getMinSectionY());
             } catch (Throwable ignored) {}
         }
@@ -55,7 +55,7 @@ public abstract class ClientPacketListenerMixin {
                 com.autism.seedcracker.SeedcrackerAddon.ID + ":amethyst-esp");
         if (amethyst != null && amethyst.isEnabled() && this.level != null) {
             try {
-                amethyst.onChunkData(packet.getChunkData().getReadBuffer(), chunkX, chunkZ,
+                amethyst.onChunkData(com.autism.seedcracker.compat.McCompat.chunkData(packet).getReadBuffer(), chunkX, chunkZ,
                     this.level.getSectionsCount(), this.level.getMinSectionY());
             } catch (Throwable ignored) {}
         }

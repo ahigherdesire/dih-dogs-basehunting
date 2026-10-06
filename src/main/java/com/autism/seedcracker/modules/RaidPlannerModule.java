@@ -8,10 +8,10 @@ import java.util.concurrent.ConcurrentHashMap;
 import com.autism.seedcracker.SeedcrackerAddon;
 import com.autism.seedcracker.finder.BaseTracker;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.IntSetting;
-import autismclient.modules.Module;
-import autismclient.util.AutismClientMessaging;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.IntSetting;
+import dihclient.modules.Module;
+import dihclient.util.DihClientMessaging;
 import net.minecraft.client.Minecraft;
 
 /**
@@ -102,11 +102,11 @@ public final class RaidPlannerModule extends Module {
     private void report() {
         List<Candidate> ranked = new ArrayList<>(candidates.values());
         ranked.sort((a, b) -> Integer.compare(b.score(), a.score()));
-        AutismClientMessaging.sendPrefixed("§b[RaidPlanner] §fTop targets (" + ranked.size() + " candidates):");
+        DihClientMessaging.sendPrefixed("§b[RaidPlanner] §fTop targets (" + ranked.size() + " candidates):");
         int shown = 0;
         for (Candidate c : ranked) {
             if (++shown > 5) break;
-            AutismClientMessaging.sendPrefixed("  " + c.rank(goldScore.get(), silverScore.get())
+            DihClientMessaging.sendPrefixed("  " + c.rank(goldScore.get(), silverScore.get())
                 + " §fX:" + c.blockX + " Z:" + c.blockZ
                 + " §7score=" + c.score() + " finders=" + String.join(",", c.sources));
         }

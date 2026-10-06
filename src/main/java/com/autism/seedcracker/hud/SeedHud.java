@@ -5,7 +5,7 @@ import java.util.Set;
 
 import com.autism.seedcracker.SeedcrackerAddon;
 
-import autismclient.api.hud.HudElementProvider;
+import dihclient.api.hud.HudElementProvider;
 import kaptainwutax.seedcrackerX.SeedCracker;
 import kaptainwutax.seedcrackerX.cracker.storage.DataStorage;
 import net.minecraft.client.Minecraft;

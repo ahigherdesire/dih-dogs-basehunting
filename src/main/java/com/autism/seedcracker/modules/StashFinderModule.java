@@ -8,11 +8,11 @@ import com.autism.seedcracker.SeedcrackerAddon;
 import com.autism.seedcracker.finder.ChunkFlagRenderer;
 import com.autism.seedcracker.finder.ChunkScanHelper;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.ColorSetting;
-import autismclient.api.module.IntSetting;
-import autismclient.modules.Module;
-import autismclient.util.AutismClientMessaging;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.ColorSetting;
+import dihclient.api.module.IntSetting;
+import dihclient.modules.Module;
+import dihclient.util.DihClientMessaging;
 import com.autism.seedcracker.compat.ClientNotify;
 import net.minecraft.client.Minecraft;
 import net.minecraft.sounds.SoundEvents;
@@ -52,12 +52,12 @@ public final class StashFinderModule extends Module {
 
     // ---- settings ----
     public enum Mode { THRESHOLD, SCORING, DONUT }
-    private final autismclient.api.module.EnumSetting<Mode> mode = add(new autismclient.api.module.EnumSetting<>(
+    private final dihclient.api.module.EnumSetting<Mode> mode = add(new dihclient.api.module.EnumSetting<>(
             "mode", "Mode", Mode.DONUT, Mode.values())
         .description("THRESHOLD = storage count per chunk. SCORING = REAL-vs-FAKE cluster classifier. DONUT = DonutSMP base profile: spawners x storage x low-Y combo (Radium/4E thresholds).")
         .group("General"));
-    private final autismclient.api.module.EnumSetting<com.autism.seedcracker.finder.FinderSensitivity> sensitivity = add(
-        new autismclient.api.module.EnumSetting<>("sensitivity", "Sensitivity",
+    private final dihclient.api.module.EnumSetting<com.autism.seedcracker.finder.FinderSensitivity> sensitivity = add(
+        new dihclient.api.module.EnumSetting<>("sensitivity", "Sensitivity",
             com.autism.seedcracker.finder.FinderSensitivity.HIGH, com.autism.seedcracker.finder.FinderSensitivity.values())
         .description("THRESHOLD: HIGH = half the storage count flags, LOW = double. SCORING: shifts the real/ambiguous score gates.")
         .group("General"));
@@ -476,7 +476,7 @@ public final class StashFinderModule extends Module {
         String band = isReal ? "REAL base" : "ambiguous";
         String msg = band + " (score " + score + ", " + size + " storage) at X:" + centre.getX() + " Y:" + centre.getY() + " Z:" + centre.getZ();
         ClientNotify.warning(msg);
-        AutismClientMessaging.sendPrefixed("§6[StashFinder] §f" + msg);
+        DihClientMessaging.sendPrefixed("§6[StashFinder] §f" + msg);
         Minecraft mc = Minecraft.getInstance();
         if (mc.player != null) {
             mc.player.playSound(SoundEvents.EXPERIENCE_ORB_PICKUP, 1.0f, 1.0f);
@@ -496,7 +496,7 @@ public final class StashFinderModule extends Module {
         if (!notify.get()) return;
         String msg = "Stash chunk (" + count + " storage) at X:" + pos.getMinBlockX() + " Z:" + pos.getMinBlockZ();
         ClientNotify.warning(msg);
-        AutismClientMessaging.sendPrefixed("§6[StashFinder] §f" + msg);
+        DihClientMessaging.sendPrefixed("§6[StashFinder] §f" + msg);
         Minecraft mc = Minecraft.getInstance();
         if (mc.player != null) {
             mc.player.playSound(SoundEvents.EXPERIENCE_ORB_PICKUP, 1.0f, 1.0f);
@@ -511,7 +511,7 @@ public final class StashFinderModule extends Module {
         } else {
             com.autism.seedcracker.finder.BaseHeatTracker.queueFind(blockX, blockZ, cb);
             if (notify.get()) {
-                AutismClientMessaging.sendPrefixed("§7[Heatmap] Queued ("
+                DihClientMessaging.sendPrefixed("§7[Heatmap] Queued ("
                     + com.autism.seedcracker.finder.BaseHeatTracker.pendingCount() + " pending). /heatconfirm to add.");
             }
         }

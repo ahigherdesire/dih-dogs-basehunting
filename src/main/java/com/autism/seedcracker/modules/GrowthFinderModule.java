@@ -8,11 +8,11 @@ import com.autism.seedcracker.SeedcrackerAddon;
 import com.autism.seedcracker.finder.ChunkFlagRenderer;
 import com.autism.seedcracker.finder.ChunkScanHelper;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.ColorSetting;
-import autismclient.api.module.IntSetting;
-import autismclient.modules.Module;
-import autismclient.util.AutismClientMessaging;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.ColorSetting;
+import dihclient.api.module.IntSetting;
+import dihclient.modules.Module;
+import dihclient.util.DihClientMessaging;
 import com.autism.seedcracker.compat.ClientNotify;
 import net.minecraft.client.Minecraft;
 import net.minecraft.sounds.SoundEvents;
@@ -42,8 +42,8 @@ public final class GrowthFinderModule extends Module {
             "scan-radius", "Scan radius (chunks)", 4, 1, 12, 1)
         .description("Chunk bubble around the player scanned for growth.")
         .group("General"));
-    private final autismclient.api.module.EnumSetting<com.autism.seedcracker.finder.FinderSensitivity> sensitivity = add(
-        new autismclient.api.module.EnumSetting<>("sensitivity", "Sensitivity",
+    private final dihclient.api.module.EnumSetting<com.autism.seedcracker.finder.FinderSensitivity> sensitivity = add(
+        new dihclient.api.module.EnumSetting<>("sensitivity", "Sensitivity",
             com.autism.seedcracker.finder.FinderSensitivity.MEDIUM, com.autism.seedcracker.finder.FinderSensitivity.values())
         .description("HIGH = flag on half the threshold (more finds, more noise). LOW = double (quiet, high confidence).")
         .group("General"));
@@ -229,7 +229,7 @@ public final class GrowthFinderModule extends Module {
         int sx = s.source.getX(), sz = s.source.getZ();
         String msg = "Growth (score " + s.score + (s.maxVine > 0 ? ", max vine " + s.maxVine : "") + ") near X:" + sx + " Z:" + sz;
         ClientNotify.warning(msg);
-        AutismClientMessaging.sendPrefixed("§2[GrowthFinder] §f" + msg);
+        DihClientMessaging.sendPrefixed("§2[GrowthFinder] §f" + msg);
         Minecraft mc = Minecraft.getInstance();
         if (mc.player != null) {
             mc.player.playSound(SoundEvents.EXPERIENCE_ORB_PICKUP, 1.0f, 1.0f);

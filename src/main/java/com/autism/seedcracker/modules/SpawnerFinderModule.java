@@ -8,11 +8,11 @@ import com.autism.seedcracker.SeedcrackerAddon;
 import com.autism.seedcracker.finder.ChunkFlagRenderer;
 import com.autism.seedcracker.finder.ChunkScanHelper;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.ColorSetting;
-import autismclient.api.module.IntSetting;
-import autismclient.modules.Module;
-import autismclient.util.AutismClientMessaging;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.ColorSetting;
+import dihclient.api.module.IntSetting;
+import dihclient.modules.Module;
+import dihclient.util.DihClientMessaging;
 import com.autism.seedcracker.compat.ClientNotify;
 import net.minecraft.client.Minecraft;
 import net.minecraft.sounds.SoundEvents;
@@ -145,7 +145,7 @@ public final class SpawnerFinderModule extends Module {
             String msg = "ACTIVATED spawner at " + pos.getX() + " " + pos.getY() + " " + pos.getZ()
                 + " (delay=" + delay + ") - player was nearby!";
             ClientNotify.warning(msg);
-            AutismClientMessaging.sendPrefixed("§d[SpawnerFinder] §f" + msg);
+            DihClientMessaging.sendPrefixed("§d[SpawnerFinder] §f" + msg);
             if (mc.player != null) mc.player.playSound(SoundEvents.EXPERIENCE_ORB_PICKUP, 1.0f, 0.6f);
         }
     }
@@ -158,7 +158,7 @@ public final class SpawnerFinderModule extends Module {
         if (!notify.get()) return;
         String msg = "Spawner found at X:" + pos.getMinBlockX() + " Z:" + pos.getMinBlockZ();
         ClientNotify.warning(msg);
-        AutismClientMessaging.sendPrefixed("§c[SpawnerFinder] §f" + msg);
+        DihClientMessaging.sendPrefixed("§c[SpawnerFinder] §f" + msg);
         Minecraft mc = Minecraft.getInstance();
         if (mc.player != null) {
             mc.player.playSound(SoundEvents.EXPERIENCE_ORB_PICKUP, 1.0f, 1.0f);

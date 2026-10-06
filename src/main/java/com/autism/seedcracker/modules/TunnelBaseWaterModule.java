@@ -3,11 +3,11 @@ package com.autism.seedcracker.modules;
 import com.autism.seedcracker.SeedcrackerAddon;
 import com.autism.seedcracker.util.tunnel.LegitMovement;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.EnumSetting;
-import autismclient.api.module.IntSetting;
-import autismclient.modules.Module;
-import autismclient.util.AutismClientMessaging;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.EnumSetting;
+import dihclient.api.module.IntSetting;
+import dihclient.modules.Module;
+import dihclient.util.DihClientMessaging;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.client.gui.screens.inventory.ContainerScreen;
@@ -83,7 +83,7 @@ public final class TunnelBaseWaterModule extends Module {
     private final BoolSetting autoBuyTotem = add(new BoolSetting("auto-buy-totem", "Auto buy totem", false)
         .description("When you have no totem, open /shop and buy one automatically instead of stopping.")
         .group("Totem"));
-    private final autismclient.api.module.StringSetting totemPrice = add(new autismclient.api.module.StringSetting("totem-price", "Totem price", "50000")
+    private final dihclient.api.module.StringSetting totemPrice = add(new dihclient.api.module.StringSetting("totem-price", "Totem price", "50000")
         .description("The /shop totem price (for reference - the buy flow clicks the totem slot; the price is informational / for your tracking).")
         .group("Totem").visibleWhen(() -> autoBuyTotem.get()));
     private final IntSetting turnSpeed = add(new IntSetting("turn-speed", "Turn speed", 12, 2, 40, 1)
@@ -107,7 +107,7 @@ public final class TunnelBaseWaterModule extends Module {
     private final BoolSetting kickOnFind = add(new BoolSetting("kick-on-find", "Kick on base find", true)
         .description("Disconnect when a base is found. OFF = play a sound + keep going (you loot it yourself).")
         .group("Find"));
-    private final autismclient.api.module.StringSetting findSound = add(new autismclient.api.module.StringSetting("find-sound", "Found sound", "entity.player.levelup")
+    private final dihclient.api.module.StringSetting findSound = add(new dihclient.api.module.StringSetting("find-sound", "Found sound", "entity.player.levelup")
         .description("Sound event to play when a base is found (only when kick-on-find is off).")
         .group("Find").visibleWhen(() -> !kickOnFind.get()));
 
@@ -201,14 +201,14 @@ public final class TunnelBaseWaterModule extends Module {
             if (t != -1) offhandFromInventory(mc, t, Items.TOTEM_OF_UNDYING);
             else if (autoBuyTotem.get()) { state = State.BUYTOTEM; buyStage = BuyStage.NONE; }
             else if (kickOnNoTotem.get()) { disconnect(mc, "YOU DON'T HAVE TOTEM"); return; }
-            else AutismClientMessaging.sendPrefixed("§e[TunnelBase-Water] §fNo totem - continuing anyway (kick-on-no-totem is off).");
+            else DihClientMessaging.sendPrefixed("§e[TunnelBase-Water] §fNo totem - continuing anyway (kick-on-no-totem is off).");
         }
         currentDirection = horizontalDir(mc);
         if (mc.player != null) lastSteerYaw = mc.player.getYRot();
         steerHoldTicks = 0;
         float[] v = dirValues(currentDirection);
         rotateTo(v[0], v[1], () -> state = State.MINING);
-        AutismClientMessaging.sendPrefixed("§c[TunnelBase-Water] §fStarting (Water logic). Fully automated - watch for flags.");
+        DihClientMessaging.sendPrefixed("§c[TunnelBase-Water] §fStarting (Water logic). Fully automated - watch for flags.");
     }
 
     @Override
@@ -452,7 +452,7 @@ public final class TunnelBaseWaterModule extends Module {
             disconnect(mc, "YOU FOUND A " + reason);
         } else {
             playFoundSound(mc);
-            AutismClientMessaging.sendPrefixed("§a[TunnelBase-Water] §fYOU FOUND A " + reason + "!");
+            DihClientMessaging.sendPrefixed("§a[TunnelBase-Water] §fYOU FOUND A " + reason + "!");
         }
     }
 
@@ -1077,7 +1077,7 @@ public final class TunnelBaseWaterModule extends Module {
             if (food == -1) {
                 if (buying.get()) { state = State.BUYCARROT; buyStage = BuyStage.NONE; return; }
                 if (noFoodCooldown <= 0) {
-                    AutismClientMessaging.sendPrefixed("§e[TunnelBase-Water] §fNo food in inventory - tunneling on while hungry (no sprint/regen).");
+                    DihClientMessaging.sendPrefixed("§e[TunnelBase-Water] §fNo food in inventory - tunneling on while hungry (no sprint/regen).");
                 }
                 noFoodCooldown = 20 * 60; // retry food in a minute; don't ping-pong eat<->mine every tick
                 updateUsage(mc, false);
@@ -1558,7 +1558,7 @@ public final class TunnelBaseWaterModule extends Module {
     }
 
     private void disconnect(Minecraft mc, String text) {
-        AutismClientMessaging.sendPrefixed("§c[TunnelBase-Water] §f" + text);
+        DihClientMessaging.sendPrefixed("§c[TunnelBase-Water] §f" + text);
         setEnabledSilently(false);
         if (mc.getConnection() != null) {
             mc.getConnection().getConnection().disconnect(net.minecraft.network.chat.Component.literal("TunnelBase(Water) | " + text));

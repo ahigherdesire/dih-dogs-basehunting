@@ -2,7 +2,7 @@ package com.autism.seedcracker.hud;
 
 import java.util.List;
 
-import autismclient.api.hud.HudElementProvider;
+import dihclient.api.hud.HudElementProvider;
 import com.autism.seedcracker.SeedcrackerAddon;
 import com.autism.seedcracker.finder.BaseTracker;
 import net.minecraft.client.Minecraft;

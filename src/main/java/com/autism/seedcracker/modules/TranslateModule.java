@@ -5,9 +5,9 @@ import java.util.List;
 import com.autism.seedcracker.SeedcrackerAddon;
 import com.autism.seedcracker.util.translate.TranslationEngine;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.EnumSetting;
-import autismclient.modules.Module;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.EnumSetting;
+import dihclient.modules.Module;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;

@@ -3,9 +3,9 @@ package com.autism.seedcracker.commands;
 import com.autism.seedcracker.finder.BaseHeatTracker;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 
-import autismclient.commands.AutismCommandSource;
-import autismclient.commands.Command;
-import autismclient.util.AutismClientMessaging;
+import dihclient.commands.DihCommandSource;
+import dihclient.commands.Command;
+import dihclient.util.DihClientMessaging;
 
 /**
  * Confirms queued base-find heatmap updates. Usage: .heatconfirm (alias .hc, .heat).
@@ -18,26 +18,26 @@ public final class HeatConfirmCommand extends Command {
     }
 
     @Override
-    public void build(LiteralArgumentBuilder<AutismCommandSource> root) {
+    public void build(LiteralArgumentBuilder<DihCommandSource> root) {
         root.executes(ctx -> {
             int pending = BaseHeatTracker.pendingCount();
             if (pending == 0) {
-                AutismClientMessaging.sendPrefixed("§7[Heatmap] No queued finds to add.");
+                DihClientMessaging.sendPrefixed("§7[Heatmap] No queued finds to add.");
             } else {
                 int added = BaseHeatTracker.confirmPending();
-                AutismClientMessaging.sendPrefixed("§a[Heatmap] Added " + added + " find(s) to the heatmap.");
+                DihClientMessaging.sendPrefixed("§a[Heatmap] Added " + added + " find(s) to the heatmap.");
             }
             return SUCCESS;
         });
-        root.then(LiteralArgumentBuilder.<AutismCommandSource>literal("clear")
+        root.then(LiteralArgumentBuilder.<DihCommandSource>literal("clear")
             .executes(ctx -> {
                 BaseHeatTracker.discardPending();
-                AutismClientMessaging.sendPrefixed("§7[Heatmap] Discarded queued finds.");
+                DihClientMessaging.sendPrefixed("§7[Heatmap] Discarded queued finds.");
                 return SUCCESS;
             }));
-        root.then(LiteralArgumentBuilder.<AutismCommandSource>literal("count")
+        root.then(LiteralArgumentBuilder.<DihCommandSource>literal("count")
             .executes(ctx -> {
-                AutismClientMessaging.sendPrefixed("§7[Heatmap] " + BaseHeatTracker.pendingCount() + " queued find(s).");
+                DihClientMessaging.sendPrefixed("§7[Heatmap] " + BaseHeatTracker.pendingCount() + " queued find(s).");
                 return SUCCESS;
             }));
     }

@@ -23,13 +23,13 @@ import com.donutsmp.rtpmapper.automation.RtpSampleResult;
 import com.donutsmp.rtpmapper.region.RtpRegion;
 import com.donutsmp.rtpmapper.region.RtpRegionCycle;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.EnumSetting;
-import autismclient.api.module.IntSetting;
-import autismclient.api.module.StringListSetting;
-import autismclient.api.module.StringSetting;
-import autismclient.modules.Module;
-import autismclient.util.AutismClientMessaging;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.EnumSetting;
+import dihclient.api.module.IntSetting;
+import dihclient.api.module.StringListSetting;
+import dihclient.api.module.StringSetting;
+import dihclient.modules.Module;
+import dihclient.util.DihClientMessaging;
 import com.autism.seedcracker.compat.ClientNotify;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
@@ -254,7 +254,7 @@ public final class DonutRTPStashFinderModule extends Module {
 
     @Override
     public void onEnable() {
-        logFile = autismclient.AutismClientAddon.FOLDER.toPath().resolve("bases.txt");
+        logFile = dihclient.DihClientAddon.FOLDER.toPath().resolve("bases.txt");
         regionCycle = new RtpRegionCycle();
         controller = new RtpController(
             RtpClock.system(),
@@ -265,11 +265,11 @@ public final class DonutRTPStashFinderModule extends Module {
         phase = Phase.RTP;
         loggedThisLanding = false;
         ACTIVE = true;
-        AutismClientMessaging.sendPrefixed("§c§l[Warning] §cDonut RTP Stash Finder uses automated RTP/Baritone movement that anti-cheats may flag. Use at your own risk.");
+        DihClientMessaging.sendPrefixed("§c§l[Warning] §cDonut RTP Stash Finder uses automated RTP/Baritone movement that anti-cheats may flag. Use at your own risk.");
         ClientNotify.warning("RTP Stash Finder: may flag anti-cheat");
-        AutismClientMessaging.sendPrefixed("§aDonut RTP Stash Finder enabled. Mode: " + mode.get());
+        DihClientMessaging.sendPrefixed("§aDonut RTP Stash Finder enabled. Mode: " + mode.get());
         if (!BaritoneCompat.isBaritoneAvailable()) {
-            AutismClientMessaging.sendPrefixed("§eBaritone not detected - base-search (dig/mine) disabled; detection still works.");
+            DihClientMessaging.sendPrefixed("§eBaritone not detected - base-search (dig/mine) disabled; detection still works.");
         }
         Minecraft mc = Minecraft.getInstance();
         RtpEnvironmentSnapshot env = buildSnapshot(mc);
@@ -392,14 +392,14 @@ public final class DonutRTPStashFinderModule extends Module {
                 net.minecraft.core.Direction.WEST, net.minecraft.core.Direction.EAST };
             waterMineDir = horizontals[WANDER_RNG.nextInt(horizontals.length)];
             waterPlaceAttempts = 0;
-            AutismClientMessaging.sendPrefixed("§7Water-mining down to Y=" + waterTargetY.get() + ", then tunneling " + waterMineDir.getName() + "... (raw movement - watch for flags)");
+            DihClientMessaging.sendPrefixed("§7Water-mining down to Y=" + waterTargetY.get() + ", then tunneling " + waterMineDir.getName() + "... (raw movement - watch for flags)");
         } else if (scanMode.get() == ScanMode.BARITONE_MINE && BaritoneCompat.isBaritoneAvailable()) {
             applyBaritoneSettings();
             // Dig down to the deepslate level first; tickWander handles the descent until reachedDepth.
             BaritoneCompat.startBaritoneGoTo(mc, (int) wanderCenterX, digDepth.get(), (int) wanderCenterZ);
-            AutismClientMessaging.sendPrefixed("§7Digging down to Y=" + digDepth.get() + ", then wandering underground (r=" + wanderRadius.get() + ")...");
+            DihClientMessaging.sendPrefixed("§7Digging down to Y=" + digDepth.get() + ", then wandering underground (r=" + wanderRadius.get() + ")...");
         } else {
-            AutismClientMessaging.sendPrefixed("§7Searching around " + (int) wanderCenterX + ", " + (int) wanderCenterZ + "...");
+            DihClientMessaging.sendPrefixed("§7Searching around " + (int) wanderCenterX + ", " + (int) wanderCenterZ + "...");
         }
     }
 
@@ -739,9 +739,9 @@ public final class DonutRTPStashFinderModule extends Module {
             Files.createDirectories(logFile.getParent());
             Files.writeString(logFile, line, StandardCharsets.UTF_8,
                 StandardOpenOption.CREATE, StandardOpenOption.APPEND);
-            AutismClientMessaging.sendPrefixed("§aLogged base to bases.txt: " + found.getX() + " " + found.getY() + " " + found.getZ());
+            DihClientMessaging.sendPrefixed("§aLogged base to bases.txt: " + found.getX() + " " + found.getY() + " " + found.getZ());
         } catch (IOException e) {
-            AutismClientMessaging.sendPrefixed("§cFailed to write bases.txt: " + e.getMessage());
+            DihClientMessaging.sendPrefixed("§cFailed to write bases.txt: " + e.getMessage());
         }
     }
 
@@ -765,7 +765,7 @@ public final class DonutRTPStashFinderModule extends Module {
                 if (scanMode.get() == ScanMode.WATER_MINE) waterReleaseKeys(mc);
                 wandering = false;
                 phase = Phase.RTP;
-                AutismClientMessaging.sendPrefixed("§7Search time up, RTPing again.");
+                DihClientMessaging.sendPrefixed("§7Search time up, RTPing again.");
             } else {
                 // Wander within the bubble while searching (Baritone moves us to cover ground).
                 if (scanMode.get() == ScanMode.BARITONE_MINE) tickWander(mc);

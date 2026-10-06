@@ -1,58 +1,23 @@
 package com.autism.seedcracker.compat;
 
-import com.mojang.blaze3d.pipeline.DepthStencilState;
-import com.mojang.blaze3d.pipeline.RenderPipeline;
-import com.mojang.blaze3d.platform.CompareOp;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 
-import net.minecraft.client.renderer.RenderPipelines;
-import net.minecraft.client.renderer.rendertype.LayeringTransform;
-import net.minecraft.client.renderer.rendertype.OutputTarget;
-import net.minecraft.client.renderer.rendertype.RenderSetup;
+import net.minecraft.client.renderer.rendertype.DihRenderTypes;
 import net.minecraft.client.renderer.rendertype.RenderType;
-import net.minecraft.resources.Identifier;
 
 /**
- * Obfuscation-proof ESP render types + line helper. The client's AutismRenderTypes
- * (storageEspLinesSeeThrough / storageEspFillSeeThrough) and AutismWorldGeometry.line were renamed
- * in later (obfuscated) builds. These are self-contained equivalents built purely on the stable
- * net.minecraft renderer API (same construction NoDepthLayer already uses): a see-through LINES
- * type, a see-through QUADS fill type, and a world-space line emitter. All "always pass" depth so
- * ESP shows through walls, matching the original see-through behaviour.
+ * ESP render types + line helper. The see-through LINES / QUADS types come from DIH Client itself, so ESP from
+ * this addon draws exactly like DIH's own storage ESP on every supported Minecraft version.
  */
 public final class EspRenderTypes {
     private EspRenderTypes() {}
 
-    private static final RenderPipeline LINES_PIPELINE = RenderPipelines.register(
-        RenderPipeline.builder(RenderPipelines.LINES_SNIPPET)
-            .withLocation(Identifier.fromNamespaceAndPath("seedcrackerx", "pipeline/esp_lines_see_through"))
-            .withDepthStencilState(new DepthStencilState(CompareOp.ALWAYS_PASS, false, 0, 0))
-            .build()
-    );
+    /** See-through line render type, shared with DIH's own storage ESP (always-pass depth). */
+    public static final RenderType LINES_SEE_THROUGH = DihRenderTypes.storageEspLinesSeeThrough();
 
-    private static final RenderPipeline QUADS_PIPELINE = RenderPipelines.register(
-        RenderPipeline.builder(RenderPipelines.DEBUG_FILLED_SNIPPET)
-            .withLocation(Identifier.fromNamespaceAndPath("seedcrackerx", "pipeline/esp_fill_see_through"))
-            .withDepthStencilState(new DepthStencilState(CompareOp.ALWAYS_PASS, false, 0, 0))
-            .build()
-    );
-
-    /** See-through line render type (was AutismRenderTypes.storageEspLinesSeeThrough). */
-    public static final RenderType LINES_SEE_THROUGH = RenderType.create("seedcrackerx_esp_lines",
-        RenderSetup.builder(LINES_PIPELINE)
-            .setLayeringTransform(LayeringTransform.VIEW_OFFSET_Z_LAYERING)
-            .setOutputTarget(OutputTarget.ITEM_ENTITY_TARGET)
-            .createRenderSetup()
-    );
-
-    /** See-through quad fill render type (was AutismRenderTypes.storageEspFillSeeThrough). */
-    public static final RenderType FILL_SEE_THROUGH = RenderType.create("seedcrackerx_esp_fill",
-        RenderSetup.builder(QUADS_PIPELINE)
-            .setLayeringTransform(LayeringTransform.VIEW_OFFSET_Z_LAYERING)
-            .setOutputTarget(OutputTarget.ITEM_ENTITY_TARGET)
-            .createRenderSetup()
-    );
+    /** See-through quad fill render type, shared with DIH's own storage ESP. */
+    public static final RenderType FILL_SEE_THROUGH = DihRenderTypes.storageEspFillSeeThrough();
 
     /** Emit a world-space line into a LINES buffer (was AutismWorldGeometry.line). The LINES
      * pipeline requires position + color + normal + lineWidth on every vertex - omitting any of

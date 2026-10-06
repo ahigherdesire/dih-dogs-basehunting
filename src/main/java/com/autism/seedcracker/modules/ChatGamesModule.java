@@ -4,12 +4,12 @@ import com.autism.seedcracker.SeedcrackerAddon;
 import com.autism.seedcracker.chatgames.AiRouter;
 import com.autism.seedcracker.chatgames.MathSolver;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.EnumSetting;
-import autismclient.api.module.IntSetting;
-import autismclient.api.module.StringSetting;
-import autismclient.modules.Module;
-import autismclient.util.AutismClientMessaging;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.EnumSetting;
+import dihclient.api.module.IntSetting;
+import dihclient.api.module.StringSetting;
+import dihclient.modules.Module;
+import dihclient.util.DihClientMessaging;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.Packet;
@@ -179,7 +179,7 @@ public final class ChatGamesModule extends Module {
             if (out.startsWith("/")) mc.getConnection().sendCommand(out.substring(1));
             else mc.getConnection().sendChat(out);
         } else {
-            AutismClientMessaging.sendPrefixed("§a[ChatGames] §f" + expr + " = §e" + answer);
+            DihClientMessaging.sendPrefixed("§a[ChatGames] §f" + expr + " = §e" + answer);
         }
     }
 

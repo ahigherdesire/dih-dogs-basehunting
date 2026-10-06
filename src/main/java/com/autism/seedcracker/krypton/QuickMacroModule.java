@@ -2,11 +2,11 @@ package com.autism.seedcracker.krypton;
 
 import com.autism.seedcracker.SeedcrackerAddon;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.StringListSetting;
-import autismclient.api.module.StringSetting;
-import autismclient.modules.Module;
-import autismclient.util.AutismClientMessaging;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.StringListSetting;
+import dihclient.api.module.StringSetting;
+import dihclient.modules.Module;
+import dihclient.util.DihClientMessaging;
 import net.minecraft.client.Minecraft;
 
 import java.util.List;
@@ -48,15 +48,15 @@ public final class QuickMacroModule extends Module {
         if (mc.player == null || mc.getConnection() == null) return;
         List<String> list = commands.get();
         if (list == null || list.isEmpty()) {
-            if (notify.get()) AutismClientMessaging.sendPrefixed("§cQuick Macro: no commands configured.");
+            if (notify.get()) DihClientMessaging.sendPrefixed("§cQuick Macro: no commands configured.");
             return;
         }
         if (executeAll.get()) {
             for (String cmd : list) send(mc, cmd);
-            if (notify.get()) AutismClientMessaging.sendPrefixed("§aQuick Macro: ran " + list.size() + " command(s).");
+            if (notify.get()) DihClientMessaging.sendPrefixed("§aQuick Macro: ran " + list.size() + " command(s).");
         } else {
             send(mc, list.get(0));
-            if (notify.get()) AutismClientMessaging.sendPrefixed("§aQuick Macro: ran command.");
+            if (notify.get()) DihClientMessaging.sendPrefixed("§aQuick Macro: ran command.");
         }
     }
 

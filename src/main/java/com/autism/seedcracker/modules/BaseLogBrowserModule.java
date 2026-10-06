@@ -3,8 +3,8 @@ package com.autism.seedcracker.modules;
 import com.autism.seedcracker.SeedcrackerAddon;
 import com.autism.seedcracker.baselog.BaseLogScreen;
 
-import autismclient.api.module.ActionSetting;
-import autismclient.modules.Module;
+import dihclient.api.module.ActionSetting;
+import dihclient.modules.Module;
 import net.minecraft.client.Minecraft;
 
 /**

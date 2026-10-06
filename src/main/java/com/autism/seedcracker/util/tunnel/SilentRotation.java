@@ -116,8 +116,8 @@ public final class SilentRotation {
         if (!active || !(packet instanceof ServerboundMovePlayerPacket)) return packet;
         try {
             ServerboundMovePlayerPacket move = (ServerboundMovePlayerPacket) packet;
-            autismclient.mixin.accessor.AutismMovePlayerPacketAccessor acc =
-                (autismclient.mixin.accessor.AutismMovePlayerPacketAccessor) packet;
+            dihclient.mixin.accessor.DihMovePlayerPacketAccessor acc =
+                (dihclient.mixin.accessor.DihMovePlayerPacketAccessor) packet;
             // Snap the rotation DELTA (not the absolute angle) to the mouse-sensitivity GCD grid:
             // Grim validates consecutive-rotation deltas as integer mouse-count multiples.
             if (Float.isNaN(lastSentYaw)) {
@@ -126,8 +126,8 @@ public final class SilentRotation {
             }
             float qy = Gcd.quantizeDelta(lastSentYaw, yaw, true);
             float qp = Mth.clamp(Gcd.quantizeDelta(lastSentPitch, pitch, false), -90.0f, 90.0f);
-            acc.autism$setYRot(qy);
-            acc.autism$setXRot(qp);
+            acc.dih$setYRot(qy);
+            acc.dih$setXRot(qp);
             lastSentYaw = qy;
             lastSentPitch = qp;
         } catch (Throwable t) {

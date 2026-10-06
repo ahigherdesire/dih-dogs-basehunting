@@ -10,12 +10,12 @@ import java.util.concurrent.CompletableFuture;
 
 import com.autism.seedcracker.SeedcrackerAddon;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.EnumSetting;
-import autismclient.api.module.IntSetting;
-import autismclient.api.module.StringSetting;
-import autismclient.modules.Module;
-import autismclient.util.AutismClientMessaging;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.EnumSetting;
+import dihclient.api.module.IntSetting;
+import dihclient.api.module.StringSetting;
+import dihclient.modules.Module;
+import dihclient.util.DihClientMessaging;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
@@ -387,7 +387,7 @@ public final class AHSniperModule extends Module {
 
     private void send(String msg) {
         if (!notify.get()) return;
-        AutismClientMessaging.sendPrefixed(msg);
+        DihClientMessaging.sendPrefixed(msg);
     }
 
     @Override

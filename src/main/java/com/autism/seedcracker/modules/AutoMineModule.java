@@ -2,9 +2,9 @@ package com.autism.seedcracker.modules;
 
 import com.autism.seedcracker.SeedcrackerAddon;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.IntSetting;
-import autismclient.modules.Module;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.IntSetting;
+import dihclient.modules.Module;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -115,7 +115,7 @@ public final class AutoMineModule extends Module {
             if (!mc.level.getBlockState(pos).isAir() && mc.gameMode != null) {
                 Direction side = bhr.getDirection();
                 mc.gameMode.continueDestroyBlock(pos, side);
-                mc.player.swing(InteractionHand.MAIN_HAND);
+                com.autism.seedcracker.compat.McCompat.swing(mc.player, InteractionHand.MAIN_HAND);
             }
         } else if (mc.gameMode != null) {
             mc.gameMode.stopDestroyBlock();
@@ -132,10 +132,10 @@ public final class AutoMineModule extends Module {
         if (mc.gameMode == null) return false;
         if (desyncCooldown > 0) { desyncCooldown--; return true; }
         try {
-            autismclient.mixin.accessor.AutismMultiPlayerGameModeAccessor acc =
-                (autismclient.mixin.accessor.AutismMultiPlayerGameModeAccessor) mc.gameMode;
-            if (!acc.autism$isDestroying()) return false;
-            BlockPos breaking = acc.autism$getDestroyBlockPos();
+            dihclient.mixin.accessor.DihMultiPlayerGameModeAccessor acc =
+                (dihclient.mixin.accessor.DihMultiPlayerGameModeAccessor) mc.gameMode;
+            if (!acc.dih$isDestroying()) return false;
+            BlockPos breaking = acc.dih$getDestroyBlockPos();
             if (breaking == null || breaking.equals(target)) return false;
             if (mc.level.getBlockState(breaking).isAir()) return false;
             // Desync: server is mid-break on a different block. Release + back off 1-3 ticks.

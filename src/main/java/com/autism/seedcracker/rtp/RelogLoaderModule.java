@@ -2,11 +2,11 @@ package com.autism.seedcracker.rtp;
 
 import com.autism.seedcracker.SeedcrackerAddon;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.EnumSetting;
-import autismclient.api.module.IntSetting;
-import autismclient.modules.Module;
-import autismclient.util.AutismClientMessaging;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.EnumSetting;
+import dihclient.api.module.IntSetting;
+import dihclient.modules.Module;
+import dihclient.util.DihClientMessaging;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ServerData;
 import net.minecraft.network.protocol.common.ServerboundClientInformationPacket;
@@ -75,7 +75,7 @@ public final class RelogLoaderModule extends Module {
         Minecraft mc = Minecraft.getInstance();
         server = mc.getCurrentServer();
         if (server == null || mc.getConnection() == null) {
-            AutismClientMessaging.sendPrefixed("§cRelog Loader: you must be on a server.");
+            DihClientMessaging.sendPrefixed("§cRelog Loader: you must be on a server.");
             setEnabledSilently(false);
             return;
         }
@@ -83,7 +83,7 @@ public final class RelogLoaderModule extends Module {
         ACTIVE = true;
         if (waitForY.get() && mc.player != null && (int) mc.player.getY() > targetY.get()) {
             phase = Phase.WAIT_Y;
-            AutismClientMessaging.sendPrefixed("§aRelog Loader: armed - get to Y=" + targetY.get() + " and it triggers.");
+            DihClientMessaging.sendPrefixed("§aRelog Loader: armed - get to Y=" + targetY.get() + " and it triggers.");
         } else {
             trigger(mc);
         }
@@ -104,9 +104,9 @@ public final class RelogLoaderModule extends Module {
             sendViewDistance(mc, 2);
             phase = Phase.RESEND_RESTORE;
             phaseTicks = resendRestoreTicks.get();
-            AutismClientMessaging.sendPrefixed("§7Relog Loader: requesting chunk resend (no disconnect)...");
+            DihClientMessaging.sendPrefixed("§7Relog Loader: requesting chunk resend (no disconnect)...");
         } else {
-            AutismClientMessaging.sendPrefixed("§7Relog Loader: relogging...");
+            DihClientMessaging.sendPrefixed("§7Relog Loader: relogging...");
             if (RelogHelper.disconnect()) {
                 phase = Phase.DISCONNECT_WAIT;
                 // Clamp in code too: saved configs from older versions may carry 0-2s.
@@ -135,7 +135,7 @@ public final class RelogLoaderModule extends Module {
                 // session live - it bounced us with "you are already connected".
                 if (mc.getConnection() != null || mc.level != null) {
                     if (++teardownTicks > 200) { // 10s: disconnect never completed, bail out
-                        AutismClientMessaging.sendPrefixed("§cRelog Loader: disconnect never completed - aborting.");
+                        DihClientMessaging.sendPrefixed("§cRelog Loader: disconnect never completed - aborting.");
                         phase = Phase.DONE;
                         setEnabledSilently(false);
                     }
@@ -153,7 +153,7 @@ public final class RelogLoaderModule extends Module {
                     // Timeout: the rejoin bounced (already-online, kick, ban) - don't sit on the
                     // multiplayer screen showing "rejoining" forever.
                     if (++reconnectTicks > 1200) { // 60s
-                        AutismClientMessaging.sendPrefixed("§cRelog Loader: rejoin never landed (bounced/kicked?) - aborting.");
+                        DihClientMessaging.sendPrefixed("§cRelog Loader: rejoin never landed (bounced/kicked?) - aborting.");
                         phase = Phase.DONE;
                         setEnabledSilently(false);
                     }
@@ -161,7 +161,7 @@ public final class RelogLoaderModule extends Module {
                 }
                 reconnectTicks = 0;
                 if (phaseTicks > 0) { phaseTicks--; return; }
-                AutismClientMessaging.sendPrefixed("§aRelog Loader: relogged, chunks resent. Done.");
+                DihClientMessaging.sendPrefixed("§aRelog Loader: relogged, chunks resent. Done.");
                 phase = Phase.DONE;
                 setEnabled(false);
             }
@@ -169,7 +169,7 @@ public final class RelogLoaderModule extends Module {
                 if (mc.player == null || mc.getConnection() == null) { setEnabledSilently(false); return; }
                 if (phaseTicks > 0) { phaseTicks--; return; }
                 sendViewDistance(mc, realViewDistance());
-                AutismClientMessaging.sendPrefixed("§aRelog Loader: chunk resend requested. Done.");
+                DihClientMessaging.sendPrefixed("§aRelog Loader: chunk resend requested. Done.");
                 phase = Phase.DONE;
                 setEnabled(false);
             }
@@ -197,7 +197,7 @@ public final class RelogLoaderModule extends Module {
                 mc.options.particles().get());
             mc.getConnection().send(new ServerboundClientInformationPacket(info));
         } catch (Throwable t) {
-            AutismClientMessaging.sendPrefixed("§cRelog Loader: view-distance packet failed (" + t.getClass().getSimpleName() + ").");
+            DihClientMessaging.sendPrefixed("§cRelog Loader: view-distance packet failed (" + t.getClass().getSimpleName() + ").");
         }
     }
 

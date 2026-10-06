@@ -6,11 +6,11 @@ import java.util.Set;
 import com.autism.seedcracker.SeedcrackerAddon;
 import com.autism.seedcracker.render.BlockEspRenderer;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.ColorSetting;
-import autismclient.api.module.StringListSetting;
-import autismclient.modules.Module;
-import autismclient.util.AutismClientMessaging;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.ColorSetting;
+import dihclient.api.module.StringListSetting;
+import dihclient.modules.Module;
+import dihclient.util.DihClientMessaging;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -87,7 +87,7 @@ public final class ItemFrameEspModule extends Module {
             BlockPos pos = frame.blockPosition();
             matches.add(pos);
             if (notify.get() && notified.add(pos)) {
-                AutismClientMessaging.sendPrefixed("§6[FrameESP] §f"
+                DihClientMessaging.sendPrefixed("§6[FrameESP] §f"
                     + stack.getHoverName().getString() + " frame at "
                     + pos.getX() + " " + pos.getY() + " " + pos.getZ());
             }

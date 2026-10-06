@@ -7,12 +7,12 @@ import com.autism.seedcracker.SeedcrackerAddon;
 import com.autism.seedcracker.finder.ChunkFlagRenderer;
 import com.autism.seedcracker.finder.FinderSensitivity;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.ColorSetting;
-import autismclient.api.module.EnumSetting;
-import autismclient.api.module.IntSetting;
-import autismclient.modules.Module;
-import autismclient.util.AutismClientMessaging;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.ColorSetting;
+import dihclient.api.module.EnumSetting;
+import dihclient.api.module.IntSetting;
+import dihclient.modules.Module;
+import dihclient.util.DihClientMessaging;
 import com.autism.seedcracker.compat.ClientNotify;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
@@ -168,7 +168,7 @@ public final class LightSourceFinderModule extends Module {
         if (!notify.get()) return;
         String msg = "Lit chunk at X:" + pos.getMinBlockX() + " Z:" + pos.getMinBlockZ() + " (player lights below Y" + yLevel.get() + ")";
         ClientNotify.warning(msg);
-        AutismClientMessaging.sendPrefixed("§e[LightFinder] §f" + msg);
+        DihClientMessaging.sendPrefixed("§e[LightFinder] §f" + msg);
     }
 
     @Override

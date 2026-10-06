@@ -9,10 +9,10 @@ import java.util.concurrent.ConcurrentHashMap;
 import com.autism.seedcracker.SeedcrackerAddon;
 import com.autism.seedcracker.netherite.HiddenDebrisScanner;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.ColorSetting;
-import autismclient.api.module.IntSetting;
-import autismclient.modules.Module;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.ColorSetting;
+import dihclient.api.module.IntSetting;
+import dihclient.modules.Module;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.ChunkPos;
@@ -324,7 +324,7 @@ public final class NetheriteFinderModule extends Module {
         if (mc.hitResult instanceof net.minecraft.world.phys.BlockHitResult hit
             && hit.getType() == net.minecraft.world.phys.HitResult.Type.BLOCK) {
             mc.gameMode.startDestroyBlock(hit.getBlockPos(), hit.getDirection());
-            mc.player.swing(net.minecraft.world.InteractionHand.MAIN_HAND);
+            com.autism.seedcracker.compat.McCompat.swing(mc.player, net.minecraft.world.InteractionHand.MAIN_HAND);
             probeCooldown = 4; // deliberate pace (not a bot burst)
         }
     }

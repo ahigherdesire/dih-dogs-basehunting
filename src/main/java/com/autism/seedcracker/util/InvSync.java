@@ -9,7 +9,7 @@ import net.minecraft.client.Minecraft;
  * Calling {@code mc.player.getInventory().setSelectedSlot(slot)} only changes the client-side
  * slot - the server still thinks you're holding the old item until it happens to see a carried-
  * item packet, so an immediate place/mine right after the swap desyncs (and flags Grim/NCP).
- * {@link autismclient.util.AutismInventoryHelper#selectHotbarSlot} sets the slot AND calls the
+ * {@link dihclient.util.DihInventoryHelper#selectHotbarSlot} sets the slot AND calls the
  * AUTISM {@code ensureHasSentCarriedItem} hook so the carried-item packet is sent immediately.
  *
  * Use {@link #select(Minecraft, int)} everywhere instead of {@code setSelectedSlot}.
@@ -27,8 +27,8 @@ public final class InvSync {
         // instant flag (vanilla never re-sends it). Only ensure the sync, don't re-select.
         if (mc.player.getInventory().getSelectedSlot() == slot) {
             try {
-                ((autismclient.mixin.accessor.AutismMultiPlayerGameModeAccessor) mc.gameMode)
-                    .autism$ensureHasSentCarriedItem();
+                ((dihclient.mixin.accessor.DihMultiPlayerGameModeAccessor) mc.gameMode)
+                    .dih$ensureHasSentCarriedItem();
             } catch (Throwable ignored) {}
             return;
         }

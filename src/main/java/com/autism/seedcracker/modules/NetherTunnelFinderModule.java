@@ -6,11 +6,11 @@ import java.util.Set;
 import com.autism.seedcracker.SeedcrackerAddon;
 import com.autism.seedcracker.finder.ChunkFlagRenderer;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.ColorSetting;
-import autismclient.api.module.IntSetting;
-import autismclient.modules.Module;
-import autismclient.util.AutismClientMessaging;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.ColorSetting;
+import dihclient.api.module.IntSetting;
+import dihclient.modules.Module;
+import dihclient.util.DihClientMessaging;
 import com.autism.seedcracker.compat.ClientNotify;
 import net.minecraft.client.Minecraft;
 import net.minecraft.sounds.SoundEvents;
@@ -31,8 +31,8 @@ import net.minecraft.world.level.chunk.LevelChunkSection;
  */
 public final class NetherTunnelFinderModule extends Module {
 
-    private final autismclient.api.module.EnumSetting<com.autism.seedcracker.finder.FinderSensitivity> sensitivity = add(
-        new autismclient.api.module.EnumSetting<>("sensitivity", "Sensitivity",
+    private final dihclient.api.module.EnumSetting<com.autism.seedcracker.finder.FinderSensitivity> sensitivity = add(
+        new dihclient.api.module.EnumSetting<>("sensitivity", "Sensitivity",
             com.autism.seedcracker.finder.FinderSensitivity.MEDIUM, com.autism.seedcracker.finder.FinderSensitivity.values())
         .description("HIGH = corridors half min-length count (more finds). LOW = double min-length (only unmistakable tunnels).")
         .group("General"));
@@ -167,7 +167,7 @@ public final class NetherTunnelFinderModule extends Module {
         if (!notify.get()) return;
         String msg = "Nether tunnel at X:" + pos.getMinBlockX() + " Z:" + pos.getMinBlockZ();
         ClientNotify.warning(msg);
-        AutismClientMessaging.sendPrefixed("§6[NetherTunnel] §f" + msg);
+        DihClientMessaging.sendPrefixed("§6[NetherTunnel] §f" + msg);
         Minecraft mc = Minecraft.getInstance();
         if (mc.player != null) mc.player.playSound(SoundEvents.EXPERIENCE_ORB_PICKUP, 1.0f, 1.0f);
     }

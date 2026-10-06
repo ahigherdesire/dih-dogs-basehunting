@@ -10,10 +10,10 @@ import java.util.concurrent.ConcurrentHashMap;
 import com.autism.seedcracker.SeedcrackerAddon;
 import com.autism.seedcracker.finder.ChunkFlagRenderer;
 
-import autismclient.api.module.BoolSetting;
-import autismclient.api.module.ColorSetting;
-import autismclient.api.module.IntSetting;
-import autismclient.modules.Module;
+import dihclient.api.module.BoolSetting;
+import dihclient.api.module.ColorSetting;
+import dihclient.api.module.IntSetting;
+import dihclient.modules.Module;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.level.ChunkPos;
 
@@ -138,7 +138,7 @@ public final class HeatMapRadarModule extends Module {
     }
 
     private Path file() {
-        return autismclient.AutismClientAddon.FOLDER.toPath().resolve("heatmap").resolve(loadedKey + ".txt");
+        return dihclient.DihClientAddon.FOLDER.toPath().resolve("heatmap").resolve(loadedKey + ".txt");
     }
 
     private void load() {
