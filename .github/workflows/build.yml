@@ -13,6 +13,9 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DIH_SDK_DIR: ${{ runner.temp }}/dih-sdk
 
     steps:
       - name: Checkout repository
@@ -30,16 +33,34 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
-      # The AUTISM Client API jar is vendored in libs/ and resolved via flatDir (see
-      # build.gradle.kts), so no extra setup is needed on a fresh runner.
-      - name: Build
-        run: ./gradlew build --stacktrace
+      - name: Download verified DIH 5.0.1 SDKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$DIH_SDK_DIR"
+          for mc in 26.2 26.3; do
+            curl --fail --location --retry 3 --connect-timeout 20 --max-time 300 \
+              "https://github.com/ahigherdesire/dih-client/releases/download/v5.0.1/DIH-Client-5.0.1-${mc}.jar" \
+              --output "$DIH_SDK_DIR/DIH-Client-5.0.1-${mc}.jar"
+          done
+          cd "$DIH_SDK_DIR"
+          sha256sum --check --strict <<'CHECKSUMS'
+          7a10cdb8168856611e9d5f255f4e6331e7de3e63108c348a0da5c50d56fbd2a2  DIH-Client-5.0.1-26.2.jar
+          c835b0c2f92c5622d5884682ed9685c6a8fd0874cd47dacb59c8360860ddce01  DIH-Client-5.0.1-26.3.jar
+          CHECKSUMS
+
+      - name: Build Minecraft 26.2
+        run: ./gradlew build -Pmc=26.2 "-PdihJar=$DIH_SDK_DIR/DIH-Client-5.0.1-26.2.jar" -PdihBuildDir=build/targets --stacktrace --max-workers=2
+
+      - name: Build Minecraft 26.3
+        run: ./gradlew build -Pmc=26.3 "-PdihJar=$DIH_SDK_DIR/DIH-Client-5.0.1-26.3.jar" -PdihBuildDir=build/targets --stacktrace --max-workers=2
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: addon-jar
-          path: build/libs/*.jar
+          path: build/targets/*/libs/*.jar
+          if-no-files-found: error
 
       - name: Release dev build
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -48,4 +69,4 @@ jobs:
           tag_name: dev
           name: Dev Build
           prerelease: true
-          files: build/libs/*.jar
+          files: build/targets/*/libs/*.jar

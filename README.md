@@ -31,6 +31,9 @@ $env:JAVA_HOME = "$env:USERPROFILE\.jdks\ms-25.0.4"
 Use the actual released DIH jar for each target. Without `-PdihJar`, the original matching
 `com.dihclient:dih:5.0.1-<mc>-dev` Maven-local dependency is used. Add `--offline` after dependencies
 are cached. Test working files stay under the selected build directory; no game/profile is required.
+GitHub Actions downloads the official DIH 5.0.1 release jars, verifies their pinned SHA-256 checksums,
+and builds both targets in separate `build/targets/<mc>` directories. Artifacts and the existing
+main-branch dev release are published only after both builds pass.
 
 Version-specific code sits in `//? if >=26.3` blocks (mostly `compat/McCompat`), DIH's Stonecutter convention;
 `preprocessSources` in `build.gradle.kts` switches them for 26.3.
