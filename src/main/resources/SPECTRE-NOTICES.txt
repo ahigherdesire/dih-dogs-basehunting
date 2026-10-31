@@ -1,0 +1,30 @@
+Spectre DonutSMP module ports
+
+Source: https://github.com/cody-raves/Spectre
+Revision: d5a7dd3de0be67bea273d4ed74d2c76c11e0f6da
+Retrieved: 2026-10-26
+Upstream license: GPL-3.0-only (SPECTRE-LICENSE.txt).
+GoNuts-derived portions retain their MIT notice (GONUTS-LICENSE.txt).
+The user supplied express permission to port these modules; the published
+upstream licenses and attribution are retained.
+
+This native DIH sync carries the Dogs 3.0.6 updates to the fork's shared modules,
+including finder, palette, activity, Spawner Protect, staff/visibility, home,
+rendering and trading adaptations and their required helpers.
+It does not bring over Fake Stats, fake payments/roles, donor client frameworks,
+authentication, updaters, telemetry or a separate Spectre runtime dependency.
+Existing DIH rendering, settings, finder reports and inventory/navigation
+coordination are reused. The original source adaptation targeted AUTISM Client.
+
+Modifications include native DIH lifecycle and packet handling, client-thread
+queues, bounded caches and scans, cleanup on world changes/disconnect, preserved
+DIH addon identifiers, opt-in observation UI and server-confirmed spawner storage.
+The source snapshot's tested algorithms are retained with Minecraft 26.2/26.3
+adapters. Native geode predictions have explicit structure-free model limits.
+These changes are not an upstream Spectre release or endorsement.
+
+The combined add-on containing these ports is distributed under GPL-3.0-only.
+The existing project LICENSE remains the Unlicense for its original code;
+other bundled components and dependencies retain their respective notices.
+Source must accompany distribution of the combined binary as required by GPLv3.
+See the repository README for the module replacement map and verification limits.

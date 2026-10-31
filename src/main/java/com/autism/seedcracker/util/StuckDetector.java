@@ -16,7 +16,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * module via {@link #setAction}), so the exact looping behaviour can be diagnosed and fixed.
  *
  * Usage (one instance per module):
- *   private final StuckDetector stuck = new StuckDetector("TunnelBaseWaterModule");
+ *   private final StuckDetector stuck = new StuckDetector("TunnelBaseFinderModule");
  *   // in tick(): stuck.setAction("MINING dir=" + currentDirection); stuck.tick(mc);
  *   // the detector auto-logs when the module stops making progress.
  *
@@ -55,7 +55,7 @@ public final class StuckDetector {
         Vec3 pos = mc.player.position();
         stillTicks = com.autism.seedcracker.util.pure.StuckLogic.update(
             stillTicks, lastPos != null, lastPos != null ? pos.distanceTo(lastPos) : 0.0, threshold);
-        lastPos = pos;
+        if (lastPos == null || stillTicks == 0) lastPos = pos;
 
         if (com.autism.seedcracker.util.pure.StuckLogic.isStuck(stillTicks, maxTicks)) {
             long now = System.currentTimeMillis();

@@ -1,22 +1,19 @@
 package com.autism.seedcracker.modules;
 
-import java.util.HashSet;
-import java.util.List;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Set;
 
 import com.autism.seedcracker.SeedcrackerAddon;
 import com.autism.seedcracker.finder.ChunkFlagRenderer;
-import com.autism.seedcracker.finder.ChunkScanHelper;
+import com.autism.seedcracker.finder.activity.ActivityFlags;
 
 import dihclient.api.module.BoolSetting;
 import dihclient.api.module.ColorSetting;
 import dihclient.api.module.IntSetting;
 import dihclient.modules.Module;
-import dihclient.util.DihClientMessaging;
-import com.autism.seedcracker.compat.ClientNotify;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
-import net.minecraft.sounds.SoundEvents;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.chunk.LevelChunk;
@@ -28,8 +25,8 @@ import net.minecraft.world.level.chunk.LevelChunk;
  * positions out of them via reflection and flagged chunks below a configurable Y level. This
  * clean-room port keeps the essence - "flag chunks showing block-entity activity at or below a Y
  * cut-off" - but reads it from loaded chunk data instead of packet reflection: any chunk with one
- * or more block entities (chests, furnaces, hoppers, spawners, beehives, ... - i.e. signs of a
- * worked area) at or below the configured Y level is flagged.
+ * or more matching block entities at or below the configured Y level is flagged. This measures
+ * presence, not recent activity; natural structures can contain the same block entities.
  *
  * Flagged chunks are drawn by the shared {@link ChunkFlagRenderer}.
  */
@@ -65,6 +62,8 @@ public final class ActivityFinderModule extends Module {
             "scan-radius", "Scan radius (chunks)", 4, 1, 12, 1)
         .description("Chunk bubble around the player scanned for activity.")
         .group("General"));
+    private final BoolSetting requireBuild = add(new BoolSetting("require-build-evidence", "Require building evidence", true)
+        .description("Ignore lone dungeon/village block entities unless independent storage or automation evidence is visible. Turn off for broad presence scanning, not proof of activity.").group("General"));
     private final BoolSetting notify = add(new BoolSetting(
             "notification", "Notification", false)
         .description("Toast + chat ping when activity is found.")
@@ -84,53 +83,58 @@ public final class ActivityFinderModule extends Module {
 
     private final com.autism.seedcracker.finder.ScanCursor scanCursor = new com.autism.seedcracker.finder.ScanCursor();
 
-    private final Set<ChunkPos> flagged = new HashSet<>();
-    private final Set<ChunkPos> notified = new HashSet<>();
-    private int tickCounter = 0;
+    private final ActivityFlags flags = new ActivityFlags();
+    private final Map<ChunkPos, LevelChunk> sampled = new HashMap<>();
+    private final com.autism.seedcracker.finder.FinderReport reporter =
+        new com.autism.seedcracker.finder.FinderReport("Activity", 0);
+    private Object world;
 
     public ActivityFinderModule() {
         super(SeedcrackerAddon.ID + ":z-activity-finder", "Activity Finder",
-            "Flags chunks with block-entity activity at or below a Y level - signs of a worked area.");
+            "Flags matching block entities below a Y level; presence is a lead, not live activity or proof of a base.");
     }
 
-    @Override
-    public void onEnable() {
-        flagged.clear();
-        notified.clear();
-        tickCounter = 0;
-    }
-
-    @Override
-    protected void onOptionValueChanged(String settingId) {
-        // Mode swap: re-judge every chunk under the new filter immediately.
-        if ("mode".equals(settingId) || "sensitivity".equals(settingId) || "y-level".equals(settingId)) {
-            flagged.clear();
-            notified.clear();
-        }
-    }
-
-    @Override
-    public void onDisable() {
-        flagged.clear();
-        notified.clear();
+    private void clearState() {
+        flags.clear();
+        sampled.clear();
+        world = null;
+        scanCursor.reset();
+        reporter.clear();
         ChunkFlagRenderer.clear(SeedcrackerAddon.ID + ":z-activity-finder");
     }
 
+    @Override public void onEnable() { clearState(); }
+    @Override public void onDisable() { clearState(); }
+
     @Override
-    public void onGameLeft() { if (com.autism.seedcracker.util.RelogPersistence.shouldDisableOnGameLeft()) setEnabledSilently(false);
+    protected void onOptionValueChanged(String settingId) {
+        if (Set.of("mode", "sensitivity", "y-level", "scan-radius", "require-build-evidence").contains(settingId)) clearState();
+    }
+
+    @Override
+    public void onGameLeft() {
+        clearState();
+        if (com.autism.seedcracker.util.RelogPersistence.shouldDisableOnGameLeft()) setEnabledSilently(false);
     }
 
     @Override
     public void tick() {
         Minecraft mc = Minecraft.getInstance();
+        if (world != mc.level || mc.level == null || mc.player == null) {
+            clearState();
+            world = mc.level;
+        }
         if (mc.level == null || mc.player == null) return;
-
+        ChunkPos centre = mc.player.chunkPosition();
+        sampled.entrySet().removeIf(entry -> tooFar(entry.getKey(), centre, scanRadius.get())
+            || mc.level.getChunkSource().getChunk(entry.getKey().x(), entry.getKey().z(), false) != entry.getValue());
+        flags.retain(sampled::containsKey);
         scan(mc);
-        ChunkFlagRenderer.feed(SeedcrackerAddon.ID + ":z-activity-finder", flagged, color.get(), tracer.get());
+        ChunkFlagRenderer.feed(SeedcrackerAddon.ID + ":z-activity-finder", flags.current(), color.get(), tracer.get());
+        reporter.tick(mc, flags.current());
     }
 
     private void scan(Minecraft mc) {
-        ChunkPos playerChunk = mc.player.chunkPosition();
         int radius = scanRadius.get();
         int yGate = yLevel.get();
 
@@ -138,19 +142,12 @@ public final class ActivityFinderModule extends Module {
         Mode m = mode.get();
         for (LevelChunk chunk : scanCursor.nextBatch(mc, radius, 400, chunksPerTick.get())) {
             ChunkPos pos = chunk.getPos();
-            boolean active = countActivityAtOrBelow(chunk, yGate, need, m) >= need;
-            if (active) {
-                flagged.add(pos);
-                if (notified.add(pos)) {
-                    onNewFlag(pos);
-                }
-            } else {
-                flagged.remove(pos);
-            }
+            sampled.put(pos, chunk);
+            int count = countActivityAtOrBelow(chunk, yGate, Integer.MAX_VALUE, m);
+            flags.record(pos, count >= need && (!requireBuild.get()
+                || com.autism.seedcracker.finder.BaseConfidence.hasBuildEvidence(chunk)));
+            if (flags.announce(pos, 1)) onNewFlag(pos, count);
         }
-        int r = radius + 2;
-        flagged.removeIf(p -> tooFar(p, playerChunk, r));
-        notified.removeIf(p -> tooFar(p, playerChunk, r));
     }
 
     /** Count mode-matching block entities at or below {@code yGate}, stopping early at {@code enough}. */
@@ -187,14 +184,15 @@ public final class ActivityFinderModule extends Module {
         return Math.abs(a.x() - b.x()) > radius || Math.abs(a.z() - b.z()) > radius;
     }
 
-    private void onNewFlag(ChunkPos pos) {
+    private void onNewFlag(ChunkPos pos, int count) {
         if (!notify.get()) return;
-        String msg = "Activity detected in chunk " + pos.x() + ", " + pos.z() + " (Y<=" + yLevel.get() + ")";
-        ClientNotify.warning(msg);
-        DihClientMessaging.sendPrefixed("§e[ActivityFinder] §f" + msg);
-        Minecraft mc = Minecraft.getInstance();
-        if (mc.player != null) {
-            mc.player.playSound(SoundEvents.EXPERIENCE_ORB_PICKUP, 1.0f, 1.0f);
-        }
+        com.autism.seedcracker.finder.FinderNotify.flag("§e[ActivityFinder]",
+            count + " " + mode.get() + " block entities in chunk " + pos.x() + ", " + pos.z()
+                + " (Y<=" + yLevel.get() + "; presence, not live activity)", true);
+    }
+
+    @Override
+    public String info() {
+        return flags.current().size() + " leads / " + (int) (100 * scanCursor.progress()) + "% scanned";
     }
 }

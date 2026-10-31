@@ -1,0 +1,73 @@
+Finder consolidation provenance — native DIH ports
+
+This is a native DIH adaptation of the Dogs source updates,
+not an upstream donor release or an endorsement. The user expressly confirmed permission to reuse Larp, Corz and
+Anubis source for this project. Upstream license declarations and provenance
+are retained separately; this notice does not grant additional third-party
+rights. Confirm applicable permissions before redistributing a combined build.
+
+LARP V9
+Supplied archive: larp-src.zip
+Metadata: larp_addon 9.0.0; Minecraft 1.21.11 / Meteor.
+Archive SHA-256:
+7288ABF8FE5DCD08DD3B2BA2BBA28B27E72969E2497E7BAA2E9A3551CFD91A78
+No upstream license declaration/root license was located in the supplied source.
+Use is based on the user's express permission, not an invented open-source license.
+
+The optional Chunk Finder horizontal-deepslate mode adapts the predicate in
+RotatedDeepslateEsp.isRotated (source lines 142-144): deepslate whose axis is not Y.
+The native adaptation performs bounded client-thread scans, retains actual block
+coordinates, and clears stale results on replacement, unload and world changes.
+Original worker-thread world access is not copied. Stone-stack and seed-aware
+modes/defaults remain available. No Larp client/native loader is included.
+Larp v3/v4 and native Netherite kernel implementations are absent from the
+supplied Java source and are NOT represented as recovered or ported.
+Palette/geode position guesses are not substituted for observed amethyst blocks.
+
+ANUBIS
+Supplied archive: anubis-src-0.9.9.3.zip
+Author declared by donor metadata: 4ldenz.
+Declared sources: https://github.com/4ldenz/Anubis-client
+Upstream license: GPL-3.0-only. The full GPLv3 text is bundled in SPECTRE-LICENSE.txt.
+Archive SHA-256:
+617906FD6445816F478D768898D295C607E7DE1AD03ADB002390137174744167
+
+Player Finder Simulation Activity adapts SimulationSignals from
+net.anubis.client.util.playerbypass2: packet-derived movement, recent-self-origin
+quarantine, fresh-entity and selected plant/hive exclusions, boundary spill, and
+teleport/respawn timing. Attribution and GPL-3.0-only SPDX headers are retained in
+PlayerChunksModule and AnubisSimulationSignals. Corresponding-source obligations
+apply when distributing these GPL-derived portions with a combined binary.
+The adaptation uses vanilla-applied packet coordinates on the client thread,
+known settled chunks, bounded histories and existing native lifecycle handling.
+It does not import donor authentication, auto-RTP, updater or client-framework code.
+Simulation activity is only a clue, not proof of a hidden player or base.
+
+CORZ
+Supplied archive: corzv2 src.zip
+Metadata: corzclient 2.0.1; license All-Rights-Reserved.
+Archive SHA-256:
+5F149FD576403C5512214648C087CB13DCBA1060DC52F72693434F4308E5B997
+The upstream All-Rights-Reserved declaration is not replaced with a GPL grant.
+Use is based on the user's express permission for this project.
+
+Recovery preserved all 2704 exact-case Java units; ordinary Windows extraction
+would merge many distinct case-sensitive paths. The bounded recovery covered 33
+units, evaluated 173 literal constant expressions and introduced no new parse
+failures. No donor bytecode was supplied, so source-derived algorithm conclusions
+remain unverified against bytecode. Encrypted UI labels, malformed records and
+unavailable native framework dispatch are not replaced with invented behavior.
+The selected source is gg.corz.IlIllIIillIllIIi.lililiilil, source lines 1195-1343
+(archive entry corzclient8sob/src/main/java/gg/corz/IlIllIIillIllIIi.java), a geode
+morphology descriptor using count, density, centroid distance, shell material and
+exposed edges. The native CorzGeodeMorphology/ContextCache/Sampler adaptation is
+optional, default off and quiet: numeric context for the nearest measured chunk
+in Amethyst ESP module info only. Missing neighbors remain unknown. Budding
+amethyst is counted explicitly instead of guessing the malformed early-result
+record; donor sensitivity gates and verdicts are not imported. Existing observed
+formation rendering is unchanged. No new markers, alerts or confidence boosts
+are produced. Detailed integration behavior is documented in the project's README.
+
+Existing Spectre GPL and GoNuts MIT notices remain in SPECTRE-NOTICES.txt,
+SPECTRE-LICENSE.txt and GONUTS-LICENSE.txt. Existing dependencies retain their
+respective licenses. No complete donor source tree or donor runtime is bundled.

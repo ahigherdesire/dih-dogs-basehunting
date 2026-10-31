@@ -27,7 +27,7 @@ import net.minecraft.world.phys.Vec3;
  * one {@link LevelRenderEvents#COLLECT_SUBMITS} listener on {@link #init()} and draws, each frame:
  *
  * <ul>
- *   <li>a 1-block-tall outline box at each flagged chunk (at a display Y derived from the camera),
+ *   <li>a 1-block-tall outline box at each flagged chunk (at a configurable fixed world Y),
  *   <li>an optional translucent fill, and
  *   <li>an optional tracer line from the camera to the chunk centre.
  * </ul>
@@ -47,6 +47,7 @@ public final class ChunkFlagRenderer {
 
     private static final Map<Key, Entry> ENTRIES = new ConcurrentHashMap<>();
     private static volatile boolean initialised = false;
+    private static Object scopedWorld;
 
     // ---- smart overlap (hotspot) mode ----
     /** Enable cross-module overlap condensation (owned by the Finder Overlay module). */
@@ -57,7 +58,7 @@ public final class ChunkFlagRenderer {
     private static volatile int floodMinChunks = 9;
     /** Chebyshev chunk radius used to cluster flags into an area. */
     private static final int CLUSTER_RADIUS = 2;
-    // Overlap-analysis cache (the analysis is O(n^2); never run it per frame).
+    // Overlap-analysis cache; fixed-size neighbourhood queries run at most every 400ms.
     private static volatile OverlapResult cachedAnalysis = null;
     private static volatile long lastAnalysisMs = 0;
     private static volatile int lastAnalysisEntryCount = -1;
@@ -67,21 +68,25 @@ public final class ChunkFlagRenderer {
 
     /** Configure smart-overlap condensation (called by the module owning the setting). */
     public static void configureSmartOverlap(boolean enabled, int minModules, int minChunks) {
+        int modules = Math.max(2, minModules), chunks = Math.max(2, minChunks);
+        if (smartOverlap == enabled && hotspotMinModules == modules && floodMinChunks == chunks) return;
         smartOverlap = enabled;
-        hotspotMinModules = Math.max(2, minModules);
-        floodMinChunks = Math.max(2, minChunks);
-        cachedAnalysis = null; // re-analyze under the new thresholds
+        hotspotMinModules = modules;
+        floodMinChunks = chunks;
+        cachedAnalysis = null;
     }
 
     // ---- display Y override (Chunk Waypoints module) ----
     /** When set, markers draw at this fixed Y instead of following the camera. */
-    private static volatile boolean fixedYEnabled = false;
     private static volatile int fixedY = 16;
 
-    /** Fix the marker display Y (Chunk Waypoints module) or return to camera-following (enabled=false). */
+    /** Update the fixed marker Y; disabling a controller preserves the last configured height. */
     public static void configureDisplayY(boolean enabled, int y) {
-        fixedYEnabled = enabled;
-        fixedY = y;
+        if (enabled) fixedY = y;
+    }
+
+    static double markerY(int minY, int maxY) {
+        return Math.clamp((double) fixedY, minY, Math.max(minY, maxY - BOX_HEIGHT));
     }
 
     /** Identity of a single module's marker stream, so modules don't clobber each other's flags. */
@@ -98,10 +103,12 @@ public final class ChunkFlagRenderer {
     public static void init() {
         if (initialised) return;
         initialised = true;
+        net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents.JOIN.register((handler, sender, mc) -> scope(mc.level));
+        net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents.DISCONNECT.register((handler, mc) -> scope(null));
         LevelRenderEvents.COLLECT_SUBMITS.register(context -> {
-            if (ENTRIES.isEmpty()) return;
             Minecraft mc = Minecraft.getInstance();
-            if (mc == null || mc.level == null) return;
+            scope(mc == null ? null : mc.level);
+            if (mc == null || mc.level == null || ENTRIES.isEmpty()) return;
 
             CameraRenderState cameraState = context.levelState().cameraRenderState;
             Vec3 origin = cameraState.pos;
@@ -109,13 +116,13 @@ public final class ChunkFlagRenderer {
 
             long now = System.currentTimeMillis();
             // Drop stale entries (module disabled / chunk un-flagged).
-            ENTRIES.entrySet().removeIf(e -> now - e.getValue().lastFeedMs > TTL_MS);
+            if (ENTRIES.entrySet().removeIf(e -> now < e.getValue().lastFeedMs || now - e.getValue().lastFeedMs > TTL_MS
+                || mc.level.getChunkSource().getChunkNow(e.getKey().pos().x(), e.getKey().pos().z()) == null)) cachedAnalysis = null;
             if (ENTRIES.isEmpty()) return;
 
             // Smart overlap: in flooded areas (many chunks / many modules agreeing) draw only the
             // most-overlapped chunks as HOTSPOTS instead of the whole flooded field.
-            // The analysis is O(n^2) over flagged chunks, so it's CACHED and recomputed at most
-            // every 400ms (or when the flag set changes) - never per frame.
+            // Fixed neighbourhood queries are cached until the flags/colours change or 400 ms passes.
             java.util.Set<ChunkPos> hotspots = java.util.Set.of();
             java.util.Set<ChunkPos> suppressed = java.util.Set.of();
             OverlapResult analysis = null;
@@ -133,10 +140,9 @@ public final class ChunkFlagRenderer {
 
             // Beam extents follow the actual dimension height (nether/end are not -64..320).
             double beamMinY = mc.level.getMinY() - origin.y;
-            double beamMaxY = mc.level.getMaxY() - origin.y;
+            double displayY = markerY(mc.level.getMinY(), mc.level.getMaxY());
+            double beamMaxY = displayY - origin.y;
 
-            // Marker Y: fixed (Chunk Waypoints) or a band just under the camera (default).
-            double displayY = fixedYEnabled ? fixedY : Math.floor(origin.y) - 1.0;
 
             // Accumulate geometry, then submit ONCE per render type: 4 submits per flagged
             // chunk per frame was the frame-time cost once dozens of chunks were flagged.
@@ -218,40 +224,50 @@ public final class ChunkFlagRenderer {
      * @param tracer   whether to draw a tracer line from the camera to each chunk centre
      */
     public static void feed(String moduleId, Set<ChunkPos> flagged, int argb, boolean tracer) {
-        if (moduleId == null || flagged == null) return;
+        if (moduleId == null || moduleId.isBlank() || flagged == null) return;
+        boolean changed = ENTRIES.keySet().removeIf(key -> key.moduleId().equals(moduleId) && !flagged.contains(key.pos()));
         long now = System.currentTimeMillis();
         for (ChunkPos pos : flagged) {
             if (pos == null) continue;
-            // computeIfAbsent returns the EXISTING entry on a hit, so the Entry object is reused
-            // across ticks (the Key record is the only small allocation, on the first feed only).
-            Entry entry = ENTRIES.computeIfAbsent(new Key(moduleId, pos), k -> new Entry());
+            Key key = new Key(moduleId, pos);
+            Entry entry = ENTRIES.get(key);
+            if (entry == null) { entry = new Entry(); ENTRIES.put(key, entry); changed = true; }
+            if (entry.argb != argb) changed = true;
             entry.argb = argb;
             entry.tracer = tracer;
             entry.lastFeedMs = now;
         }
+        if (changed) cachedAnalysis = null;
     }
 
     /** Clears every marker owned by a module (called when the module is disabled). */
     public static void clear(String moduleId) {
         if (moduleId == null) return;
-        ENTRIES.keySet().removeIf(k -> k.moduleId().equals(moduleId));
+        if (ENTRIES.keySet().removeIf(k -> k.moduleId().equals(moduleId))) cachedAnalysis = null;
+    }
+
+    static void scope(Object world) {
+        if (scopedWorld == world) return;
+        ENTRIES.clear(); cachedAnalysis = null; lastAnalysisEntryCount = -1; lastAnalysisMs = 0;
+        scopedWorld = world;
     }
 
     // ---- smart overlap analysis ----
 
-    private record OverlapResult(java.util.Set<ChunkPos> hotspots, java.util.Set<ChunkPos> suppressed,
+    record OverlapResult(java.util.Set<ChunkPos> hotspots, java.util.Set<ChunkPos> suppressed,
                                  java.util.Map<ChunkPos, Integer> entryColors) {
         /** Dominant colour among entries within the cluster radius of a chunk. */
         int dominantColor(ChunkPos center, int fallback) {
             java.util.Map<Integer, int[]> tally = new java.util.HashMap<>();
-            for (Map.Entry<ChunkPos, Integer> e : entryColors.entrySet()) {
-                ChunkPos p = e.getKey();
-                if (Math.abs(p.x() - center.x()) > CLUSTER_RADIUS || Math.abs(p.z() - center.z()) > CLUSTER_RADIUS) continue;
-                tally.computeIfAbsent(e.getValue(), k -> new int[1])[0]++;
+            for (int deltaX = -CLUSTER_RADIUS; deltaX <= CLUSTER_RADIUS; deltaX++) for (int deltaZ = -CLUSTER_RADIUS; deltaZ <= CLUSTER_RADIUS; deltaZ++) {
+                Integer color = entryColors.get(new ChunkPos(center.x() + deltaX, center.z() + deltaZ));
+                if (color != null) tally.computeIfAbsent(color, key -> new int[1])[0]++;
             }
             int best = fallback, bestN = -1;
             for (Map.Entry<Integer, int[]> e : tally.entrySet()) {
-                if (e.getValue()[0] > bestN) { bestN = e.getValue()[0]; best = e.getKey(); }
+                if (e.getValue()[0] > bestN || e.getValue()[0] == bestN && Integer.compareUnsigned(e.getKey(), best) < 0) {
+                    bestN = e.getValue()[0]; best = e.getKey();
+                }
             }
             return best;
         }
@@ -277,13 +293,13 @@ public final class ChunkFlagRenderer {
      * flooded neighbourhood only its local score maxima render (as hotspot beacons); the rest of
      * that neighbourhood is hidden.
      */
-    private static OverlapResult analyzeOverlap() {
+    static OverlapResult analyzeOverlap() {
         // Per-chunk distinct-module count.
         Map<ChunkPos, java.util.Set<String>> byChunk = new java.util.HashMap<>();
         for (Key k : ENTRIES.keySet()) {
             byChunk.computeIfAbsent(k.pos(), p -> new java.util.HashSet<>()).add(k.moduleId());
         }
-        if (byChunk.size() < floodMinChunks) {
+        if (byChunk.isEmpty()) {
             return new OverlapResult(java.util.Set.of(), java.util.Set.of(), java.util.Map.of());
         }
 
@@ -291,8 +307,8 @@ public final class ChunkFlagRenderer {
         Map<ChunkPos, Integer> density = new java.util.HashMap<>();
         for (ChunkPos pos : byChunk.keySet()) {
             int d = 0;
-            for (ChunkPos np : byChunk.keySet()) {
-                if (Math.abs(np.x() - pos.x()) <= CLUSTER_RADIUS && Math.abs(np.z() - pos.z()) <= CLUSTER_RADIUS) d++;
+            for (int deltaX = -CLUSTER_RADIUS; deltaX <= CLUSTER_RADIUS; deltaX++) for (int deltaZ = -CLUSTER_RADIUS; deltaZ <= CLUSTER_RADIUS; deltaZ++) {
+                if (byChunk.containsKey(new ChunkPos(pos.x() + deltaX, pos.z() + deltaZ))) d++;
             }
             density.put(pos, d);
         }
@@ -301,9 +317,8 @@ public final class ChunkFlagRenderer {
         java.util.Set<ChunkPos> suppressed = new java.util.HashSet<>();
         // Colour of each chunk = the colour of its (first) entry, for hotspot colour inheritance.
         java.util.Map<ChunkPos, Integer> entryColors = new java.util.HashMap<>();
-        for (Map.Entry<Key, Entry> en : ENTRIES.entrySet()) {
-            entryColors.putIfAbsent(en.getKey().pos(), en.getValue().argb);
-        }
+        ENTRIES.entrySet().stream().sorted(java.util.Comparator.comparing((Map.Entry<Key, Entry> entry) -> entry.getKey().moduleId()))
+            .forEach(entry -> entryColors.putIfAbsent(entry.getKey().pos(), entry.getValue().argb));
 
         for (Map.Entry<ChunkPos, java.util.Set<String>> e : byChunk.entrySet()) {
             ChunkPos pos = e.getKey();
@@ -315,11 +330,12 @@ public final class ChunkFlagRenderer {
             java.util.Set<String> neighbourModules = new java.util.HashSet<>();
             int bestScore = myScore;
             boolean densityPeak = true; // no neighbour is denser (ties broken by chunk key)
-            for (Map.Entry<ChunkPos, java.util.Set<String>> n : byChunk.entrySet()) {
-                ChunkPos np = n.getKey();
-                if (Math.abs(np.x() - pos.x()) > CLUSTER_RADIUS || Math.abs(np.z() - pos.z()) > CLUSTER_RADIUS) continue;
-                neighbourModules.addAll(n.getValue());
-                if (n.getValue().size() > bestScore) bestScore = n.getValue().size();
+            for (int deltaX = -CLUSTER_RADIUS; deltaX <= CLUSTER_RADIUS; deltaX++) for (int deltaZ = -CLUSTER_RADIUS; deltaZ <= CLUSTER_RADIUS; deltaZ++) {
+                ChunkPos np = new ChunkPos(pos.x() + deltaX, pos.z() + deltaZ);
+                var modules = byChunk.get(np);
+                if (modules == null) continue;
+                neighbourModules.addAll(modules);
+                if (modules.size() > bestScore) bestScore = modules.size();
                 int nd = density.get(np);
                 if (nd > myDensity || (nd == myDensity && np.pack() < myKey)) densityPeak = false;
             }

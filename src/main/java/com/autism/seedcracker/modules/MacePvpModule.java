@@ -41,34 +41,39 @@ public final class MacePvpModule extends Module {
     public enum SlamMode { HOLD, PULSE }
     public enum EnchantPrefer { DENSITY, BREACH, WIND_BURST, ANY }
 
+    // "Show advanced" keeps the panel to the core toggles until you ask for the fine-tuning.
+    private final BoolSetting showAdvanced = add(new BoolSetting("advanced", "Show advanced", false)
+        .description("Reveal fine-tuning for aim, swap-back, cooldown and fall thresholds.")
+        .group("General"));
+
     // ---- auto mace ----
     private final BoolSetting autoMace = add(new BoolSetting("auto-mace", "Auto mace", true)
         .description("Hit-select the mace and swing when you have the fall distance for a smash crit on a target below you.")
         .group("Mace"));
-    private final EnumSetting<EnchantPrefer> prefer = add(new EnumSetting<>("prefer", "Prefer enchant", EnchantPrefer.DENSITY, EnchantPrefer.values())
-        .description("Anubis: auto-swap to the mace carrying the preferred smash enchant. DENSITY = raw smash damage, BREACH = armour pierce, WIND_BURST = re-launch on hit, ANY = first mace found.")
-        .group("Mace"));
-    private final BoolSetting weaponsOnly = add(new BoolSetting("weapons-only", "Only mace in hotbar", false)
-        .description("Anubis: only auto-swap if the preferred mace is already in your hotbar (never pull it from the inventory grid). Off = also search the inventory.")
-        .group("Mace"));
-    private final BoolSetting swapBack = add(new BoolSetting("swap-back", "Swap back after swing", true)
-        .description("Anubis: return to your previous held slot a few ticks after the swing so you're not left holding the mace.")
-        .group("Mace"));
-    private final IntSetting backDelay = add(new IntSetting("back-delay", "Swap-back delay (ticks)", 4, 1, 20, 1)
-        .description("Ticks to hold the mace before swapping back.")
-        .group("Mace").visibleWhen(() -> swapBack.get()));
-    private final IntSetting targetRange = add(new IntSetting("target-range", "Target range", 5, 2, 8, 1)
-        .description("Reach (blocks) to consider a player a valid crit target.")
-        .group("Mace"));
-    private final BoolSetting onlySmashReady = add(new BoolSetting("only-smash-ready", "Only when smash-ready", true)
-        .description("Only swing when your fall distance is over the 1.5-block smash threshold (every hit is a crit). Off = swing whenever in range.")
-        .group("Mace"));
-    private final BoolSetting respectCooldown = add(new BoolSetting("respect-cooldown", "Respect attack cooldown", true)
-        .description("Wait for the attack cooldown so each swing does full damage (reads human). Off = swing every tick.")
-        .group("Mace"));
     private final EnumSetting<AimStyle> aimStyle = add(new EnumSetting<>("aim-style", "Aim style", AimStyle.LEGIT, AimStyle.values())
         .description("LEGIT = eased human aim toward the target before swinging. INSTANT = snap (fastest, more obvious). NONE = don't aim (you aim yourself).")
         .group("Mace"));
+    private final IntSetting targetRange = add(new IntSetting("target-range", "Target range", 5, 2, 8, 1)
+        .description("Reach (blocks) to consider a player a valid crit target.")
+        .group("Mace"));
+    private final EnumSetting<EnchantPrefer> prefer = add(new EnumSetting<>("prefer", "Prefer enchant", EnchantPrefer.DENSITY, EnchantPrefer.values())
+        .description("Anubis: auto-swap to the mace carrying the preferred smash enchant. DENSITY = raw smash damage, BREACH = armour pierce, WIND_BURST = re-launch on hit, ANY = first mace found.")
+        .group("Mace").visibleWhen(showAdvanced::get));
+    private final BoolSetting weaponsOnly = add(new BoolSetting("weapons-only", "Only mace in hotbar", false)
+        .description("Anubis: only auto-swap if the preferred mace is already in your hotbar (never pull it from the inventory grid). Off = also search the inventory.")
+        .group("Mace").visibleWhen(showAdvanced::get));
+    private final BoolSetting swapBack = add(new BoolSetting("swap-back", "Swap back after swing", true)
+        .description("Anubis: return to your previous held slot a few ticks after the swing so you're not left holding the mace.")
+        .group("Mace").visibleWhen(showAdvanced::get));
+    private final IntSetting backDelay = add(new IntSetting("back-delay", "Swap-back delay (ticks)", 4, 1, 20, 1)
+        .description("Ticks to hold the mace before swapping back.")
+        .group("Mace").visibleWhen(() -> showAdvanced.get() && swapBack.get()));
+    private final BoolSetting onlySmashReady = add(new BoolSetting("only-smash-ready", "Only when smash-ready", true)
+        .description("Only swing when your fall distance is over the 1.5-block smash threshold (every hit is a crit). Off = swing whenever in range.")
+        .group("Mace").visibleWhen(showAdvanced::get));
+    private final BoolSetting respectCooldown = add(new BoolSetting("respect-cooldown", "Respect attack cooldown", true)
+        .description("Wait for the attack cooldown so each swing does full damage (reads human). Off = swing every tick.")
+        .group("Mace").visibleWhen(showAdvanced::get));
 
     // ---- stunt slam (wind charge) ----
     private final BoolSetting windCharge = add(new BoolSetting("wind-charge", "Wind charge slam", true)
@@ -79,7 +84,7 @@ public final class MacePvpModule extends Module {
         .group("Slam"));
     private final BoolSetting slamAimDown = add(new BoolSetting("slam-aim-down", "Aim down on launch", true)
         .description("Pitch down toward the target during the slam so the crit lands on them, not beside them.")
-        .group("Slam"));
+        .group("Slam").visibleWhen(showAdvanced::get));
 
     // ---- elytra ----
     private final BoolSetting elytraOut = add(new BoolSetting("elytra-out", "Elytra re-deploy", true)
@@ -87,10 +92,11 @@ public final class MacePvpModule extends Module {
         .group("Elytra"));
     private final IntSetting elytraMinFall = add(new IntSetting("elytra-min-fall", "Min fall to deploy", 6, 2, 20, 1)
         .description("Blocks of downward travel before the elytra re-deploys (avoids accidental deploys on small hops).")
-        .group("Elytra"));
+        .group("Elytra").visibleWhen(showAdvanced::get));
 
     private final LegitMovement look = new LegitMovement();
     private int launchTicks = -1;   // ticks since the wind-charge launch (-1 = not slamming)
+    private boolean pulseFired = false; // PULSE mode: one launch per activation
     private int cooldownWait = 0;
     // Anubis swap-back state.
     private int returnSlot = -1;    // slot we were holding before the auto-swap (-1 = none)
@@ -105,7 +111,18 @@ public final class MacePvpModule extends Module {
     public void onEnable() {
         look.reset();
         launchTicks = -1;
+        pulseFired = false;
         cooldownWait = 0;
+    }
+
+    @Override
+    public void onDisable() {
+        // Never leave the jump key stuck down.
+        if (jumpHoldTicks > 0) {
+            jumpHoldTicks = 0;
+            Minecraft mc = Minecraft.getInstance();
+            if (mc.options != null) mc.options.keyJump.setDown(false);
+        }
     }
 
     @Override
@@ -118,6 +135,7 @@ public final class MacePvpModule extends Module {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null || mc.level == null || mc.gameMode == null) return;
         if (cooldownWait > 0) cooldownWait--;
+        tickJumpRelease(mc);
         tickSwapBack(mc); // Anubis: return to the pre-swap held slot after the swing delay
 
         LivingEntity target = nearestTarget(mc);
@@ -165,14 +183,12 @@ public final class MacePvpModule extends Module {
             float[] goal = yawPitchTo(mc, target);
             if (aimStyle.get() == AimStyle.LEGIT) {
                 float[] now = look.update(goal[0], goal[1]);
-                mc.player.setYRot(now[0]);
-                mc.player.setXRot(now[1]);
+                if (!com.autism.seedcracker.motion.RotationEngine.write(id(), com.autism.seedcracker.motion.RotationEngine.PRIORITY_COMBAT, now[0], now[1])) return;
                 float off = Math.abs(net.minecraft.util.Mth.wrapDegrees(goal[0] - now[0]))
                     + Math.abs(goal[1] - now[1]);
                 if (off > 6.0f) return; // still easing on-target; swing next tick
-            } else {
-                mc.player.setYRot(goal[0]);
-                mc.player.setXRot(goal[1]);
+            } else if (!com.autism.seedcracker.motion.RotationEngine.write(id(), com.autism.seedcracker.motion.RotationEngine.PRIORITY_COMBAT, goal[0], goal[1])) {
+                return;
             }
         }
 
@@ -187,8 +203,10 @@ public final class MacePvpModule extends Module {
     private boolean wantsLaunch(Minecraft mc, LivingEntity target) {
         if (findItem(mc, "minecraft:wind_charge") < 0) return false;
         if (slamMode.get() == SlamMode.PULSE) {
-            // Pulse: launch only when the player is on the ground near a target (a clean opener).
-            return mc.player.onGround() && target != null && mc.player.distanceTo(target) <= targetRange.get() + 1;
+            // Pulse: ONE launch per activation (pulseFired clears on re-enable) - without the
+            // flag, the 100-tick safety reset re-armed a launch every ~5s.
+            return !pulseFired && mc.player.onGround() && target != null
+                && mc.player.distanceTo(target) <= targetRange.get() + 1;
         }
         // HOLD: launch whenever the module is active and we're grounded near a target.
         return mc.player.onGround() && target != null;
@@ -197,19 +215,33 @@ public final class MacePvpModule extends Module {
     private void doLaunch(Minecraft mc) {
         int wind = findItem(mc, "minecraft:wind_charge");
         if (wind < 0) return;
+        // Ease the pitch down through the human engine; only throw once actually aimed down
+        // (an instant 90-degree snap + restore-less pitch was a GCD/rotation-checker flag).
+        float[] now = look.update(mc.player.getYRot(), 90f);
+        if (!com.autism.seedcracker.motion.RotationEngine.write(id(), com.autism.seedcracker.motion.RotationEngine.PRIORITY_COMBAT, now[0], now[1])) return;
+        if (now[1] < 80f) return; // keep easing next tick
         com.autism.seedcracker.util.InvSync.select(mc, wind);
-        // Aim straight down so the charge detonates at our feet = max self-launch.
-        mc.player.setXRot(90f);
         mc.gameMode.useItem(mc.player, InteractionHand.MAIN_HAND);
         launchTicks = 0;
+        pulseFired = true;
     }
 
     // ---- elytra ----
 
+    private int jumpHoldTicks;
+
     private void deployElytra(Minecraft mc) {
         // The client re-deploys the elytra by pressing jump while airborne with elytra equipped.
+        // The press must survive a full input tick - releasing via mc.execute() lands in the SAME
+        // tick, so the game never saw it (A21). Hold for 2 ticks, released in tick().
         mc.options.keyJump.setDown(true);
-        mc.execute(() -> mc.options.keyJump.setDown(false));
+        jumpHoldTicks = 2;
+    }
+
+    private void tickJumpRelease(Minecraft mc) {
+        if (jumpHoldTicks > 0 && --jumpHoldTicks == 0) {
+            mc.options.keyJump.setDown(false);
+        }
     }
 
     private boolean hasElytra(Minecraft mc) {
@@ -263,7 +295,8 @@ public final class MacePvpModule extends Module {
             var ench = stack.getEnchantments();
             for (var e : ench.entrySet()) {
                 var keyOpt = e.getKey().unwrapKey();
-                if (keyOpt.isPresent() && keyOpt.get().toString().equals(enchantId)) return e.getIntValue();
+                // ResourceKey.toString() is "ResourceKey[... / ...]" - compare the identifier.
+                if (keyOpt.isPresent() && keyOpt.get().identifier().toString().equals(enchantId)) return e.getIntValue();
             }
         } catch (Throwable ignored) {}
         return 0;

@@ -30,9 +30,7 @@ import net.minecraft.client.Minecraft;
 public final class BaseWebhookModule extends Module {
 
     private static final Duration HTTP_TIMEOUT = Duration.ofSeconds(8L);
-    private static final HttpClient HTTP = HttpClient.newBuilder()
-        .connectTimeout(HTTP_TIMEOUT)
-        .build();
+    private static final HttpClient HTTP = com.autism.seedcracker.util.Http.CLIENT;
 
     private final StringSetting webhook = add(new StringSetting("webhook", "Webhook URL", "")
         .description("Discord webhook URL to post base finds to.").group("Webhook"));
@@ -54,6 +52,12 @@ public final class BaseWebhookModule extends Module {
     public BaseWebhookModule() {
         super(SeedcrackerAddon.ID + ":base-webhook", "Base Webhook",
             "Posts a Discord webhook the first time any finder confirms a new base location.");
+    }
+
+    /** Grouped into the Finders hub (it's a simple on/off tool); hidden from the main menu. */
+    @Override
+    public boolean showInModuleMenu() {
+        return false;
     }
 
     @Override
@@ -79,7 +83,7 @@ public final class BaseWebhookModule extends Module {
             String coords = includeCoords.get()
                 ? "X: " + e.blockX() + ", Z: " + e.blockZ() + " (" + dim + ")"
                 : "(coordinates hidden)";
-            String desc = "Source: " + e.source() + "\\nConfidence: " + e.confidence() + "%\\n" + coords;
+            String desc = "Source: " + e.source() + "\nConfidence: " + e.confidence() + "%\n" + coords;
             postWebhook(url, "Base found!", desc);
             if (chatEcho.get()) {
                 DihClientMessaging.sendPrefixed("§a[BaseWebhook] §fPosted find from §e" + e.source()
@@ -124,6 +128,6 @@ public final class BaseWebhookModule extends Module {
     }
 
     private static String quote(String s) {
-        return "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
+        return com.autism.seedcracker.util.pure.Json.quote(s);
     }
 }

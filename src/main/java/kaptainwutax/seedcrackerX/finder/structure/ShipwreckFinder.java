@@ -20,8 +20,6 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.ChestBlock;
 import net.minecraft.world.level.block.StairBlock;
 import net.minecraft.world.level.block.TrapDoorBlock;
-import net.minecraft.world.level.block.entity.BlockEntity;
-import net.minecraft.world.level.block.entity.ChestBlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.ChestType;
 import net.minecraft.world.level.dimension.DimensionType;
@@ -66,12 +64,10 @@ public class ShipwreckFinder extends BlockFinder {
 
         result.removeIf(pos -> {
             BlockState state = this.world.getBlockState(pos);
-            if (state.getValue(ChestBlock.TYPE) != ChestType.SINGLE) return true;
+            if (!state.is(Blocks.CHEST) || state.getValue(ChestBlock.TYPE) != ChestType.SINGLE) return true;
 
-            BlockEntity blockEntity = this.world.getBlockEntity(pos);
-            if (!(blockEntity instanceof ChestBlockEntity)) return true;
-
-            return !this.onChestFound(pos);
+            // The immutable state supplies the type and facing without a worker-thread block-entity lookup.
+            return !this.onChestFound(pos, state.getValue(ChestBlock.FACING));
         });
 
         return result;
@@ -80,9 +76,8 @@ public class ShipwreckFinder extends BlockFinder {
     /**
      * Source: https://github.com/skyrising/casual-mod/blob/master/src/main/java/de/skyrising/casual/ShipwreckFinder.java
      */
-    private boolean onChestFound(BlockPos pos) {
+    private boolean onChestFound(BlockPos pos, Direction chestFacing) {
         BlockPos.MutableBlockPos mutablePos = new BlockPos.MutableBlockPos(pos.getX(), pos.getY(), pos.getZ());
-        Direction chestFacing = world.getBlockState(pos).getValue(ChestBlock.FACING);
 
         int[] stairs = new int[4];
         int totalStairs = 0;

@@ -113,7 +113,9 @@ public final class SeedcrackerAddon extends DihAddon {
         regTab(new StashFinderModule(), "Finders");
         regTab(new ChunkFinderModule(), "Finders");
         regTab(new SpawnerFinderModule(), "Finders");
+        regTab(new com.autism.seedcracker.modules.BlockEntityDebugModule(), "Finders");
         regTab(new SusChunkFinderModule(), "Finders");
+        regTab(new com.autism.seedcracker.modules.DogsObservationsModule(), "Finders");
         regTab(new com.autism.seedcracker.modules.ChunkWaypointsModule(), "Finders");
         regTab(new com.autism.seedcracker.modules.FinderOverlayModule(), "Finders");
         regTab(new com.autism.seedcracker.modules.PlayerChunksModule(), "Finders");
@@ -130,6 +132,11 @@ public final class SeedcrackerAddon extends DihAddon {
         regTab(new TunnelBaseWaterModule(), "Finders");
         regTab(new NetherTunnelFinderModule(), "Finders");
         regTab(new StructureDetectorModule(), "Finders");
+        regTab(new com.autism.seedcracker.modules.SignFinderModule(), "Finders");
+        regTab(new com.autism.seedcracker.modules.PortalFinderModule(), "Finders");
+        regTab(new com.autism.seedcracker.modules.QuantumModule(), "Finders");
+        regTab(new com.autism.seedcracker.modules.RenderUtilModule(), "Finders");
+        regTab(new com.autism.seedcracker.modules.FindersModule(), "Finders");
 
         // Zelith entity / fake modules (ported), each under its own tab.
         regTab(new EntityScannerModule(), "Entity");
@@ -147,6 +154,7 @@ public final class SeedcrackerAddon extends DihAddon {
         regTab(new AHSniperModule(), "Trading");
         regTab(new ShopBuyerModule(), "Trading");
         regTab(new AhSellModule(), "Trading");
+        regTab(new com.autism.seedcracker.modules.PriceCheckModule(), "Trading");
 
         // Dogs Misc Tools (Zelith misc modules, ported).
         String dogs = "Dogs Misc Tools";
@@ -160,6 +168,7 @@ public final class SeedcrackerAddon extends DihAddon {
         regTab(new FlagDetectorModule(), dogs);
         regTab(new com.autism.seedcracker.modules.MacroProtectorModule(), dogs);
         regTab(new com.autism.seedcracker.modules.SpectatorDetectorModule(), dogs);
+        regTab(new com.autism.seedcracker.modules.StaffListModule(), dogs);
         regTab(new com.autism.seedcracker.modules.PanicPayModule(), dogs);
         regTab(new com.autism.seedcracker.modules.AntiCheatGuesserModule(), dogs);
         regTab(new com.autism.seedcracker.modules.PositionPacketFilterModule(), dogs);
@@ -177,6 +186,7 @@ public final class SeedcrackerAddon extends DihAddon {
         regTab(new RegionMapModule(), dogs);
         regTab(new SchematicBuilderModule(), dogs);
         regTab(new ElytraWarnerModule(), dogs);
+        regTab(new com.autism.seedcracker.modules.ElytraTravelModule(), dogs);
         regTab(new com.autism.seedcracker.modules.TranslateModule(), dogs);
 
         // ESP (moved to the Dogs tab).
@@ -199,6 +209,10 @@ public final class SeedcrackerAddon extends DihAddon {
         DihAddons.commands().register(new com.autism.seedcracker.commands.TextureCrackCommand());
         DihAddons.commands().register(new com.autism.seedcracker.commands.CrossCheckCommand());
         DihAddons.commands().register(new HeatConfirmCommand());
+        DihAddons.commands().register(new com.autism.seedcracker.commands.FlipCommand());
+        DihAddons.commands().register(new com.autism.seedcracker.commands.PriceCommand());
+        DihAddons.hud().register(new com.autism.seedcracker.spectre.staff.StaffHud());
+        DihAddons.hud().register(new com.autism.seedcracker.spectre.staff.StaffGhost());
         DihAddons.hud().register(new SeedHud());
         DihAddons.hud().register(new StashWarningHud());
         DihAddons.hud().register(new BaseTrackerHud());

@@ -1,36 +1,40 @@
 package com.autism.seedcracker.baselog;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import dihclient.DihClientAddon;
 import net.minecraft.client.Minecraft;
 
-/**
- * Reads / writes the shared {@code bases.txt} file that the RTP stash finder and the
- * Relog Loader append base coordinates to. Provides parsed entries for the Base Log
- * Browser GUI and helpers to delete entries and rewrite the file.
- */
+/** Local review of unverified coordinates in the existing bases.txt format. */
 public final class BaseLog {
+    static final int MAX_BYTES = 4 * 1024 * 1024;
+    static final int MAX_LINES = 50_000;
+    private static final Pattern LINES = Pattern.compile("([^\\r\\n]*)(?:\\r\\n|\\r|\\n|$)");
+
     private BaseLog() {}
 
-    /** One logged base. */
     public static final class Entry {
-        public final int x;
-        public final int y;
-        public final int z;
-        public final String dimension;   // e.g. minecraft:overworld (or "unknown")
-        public final String blockId;     // e.g. minecraft:chest (or "" when not recorded)
-        public final String timestamp;   // raw timestamp string (or "")
-        public final String raw;         // original line
+        public final int x, y, z;
+        public final String dimension, blockId, timestamp, raw;
+        final int start, end;
 
-        Entry(int x, int y, int z, String dimension, String blockId, String timestamp, String raw) {
+        Entry(int x, int y, int z, String dimension, String blockId, String timestamp,
+              String raw, int start, int end) {
             this.x = x;
             this.y = y;
             this.z = z;
@@ -38,135 +42,141 @@ public final class BaseLog {
             this.blockId = blockId;
             this.timestamp = timestamp;
             this.raw = raw;
+            this.start = start;
+            this.end = end;
         }
 
-        /** Distance (blocks, 2D) from the given position. */
-        public double distanceTo(double px, double pz) {
-            double dx = x - px;
-            double dz = z - pz;
-            return Math.sqrt(dx * dx + dz * dz);
-        }
-
-        public String coord() {
-            return x + " " + y + " " + z;
+        public double distanceTo(double px, double pz) { return Math.hypot(x - px, z - pz); }
+        public String coord() { return x + " " + y + " " + z; }
+        public String details() {
+            return "Candidate (unverified): " + coord() + "\nDimension: " + dimension
+                + "\nServer/world: not recorded\nBlock: " + (blockId.isEmpty() ? "not recorded" : blockId)
+                + "\nLogged: " + (timestamp.isEmpty() ? "not recorded" : timestamp);
         }
     }
 
-    public static Path file() {
-        return DihClientAddon.FOLDER.toPath().resolve("bases.txt");
+    public record Snapshot(String text, List<Entry> entries, int skipped) {}
+
+    public static Path file() { return DihClientAddon.FOLDER.toPath().resolve("bases.txt"); }
+
+    public static Snapshot read(Path path) throws IOException {
+        if (!Files.exists(path, LinkOption.NOFOLLOW_LINKS)) return new Snapshot("", List.of(), 0);
+        if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) throw new IOException("Not a regular log file.");
+        byte[] bytes;
+        try (var input = Files.newInputStream(path)) { bytes = input.readNBytes(MAX_BYTES + 1); }
+        if (bytes.length > MAX_BYTES) throw new IOException("Log exceeds 4 MiB; review a smaller copy. File unchanged.");
+        // Reject invalid UTF-8 rather than silently replacing bytes during a later delete.
+        return parseText(StandardCharsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(bytes)).toString());
     }
 
-    /** Parse every line in bases.txt. Malformed lines are skipped. */
-    public static List<Entry> readAll() {
-        List<Entry> out = new ArrayList<>();
-        Path f = file();
-        if (!Files.exists(f)) return out;
-        List<String> lines;
-        try {
-            lines = Files.readAllLines(f, StandardCharsets.UTF_8);
-        } catch (IOException e) {
-            return out;
+    static Snapshot parseText(String text) throws IOException {
+        List<Entry> entries = new ArrayList<>();
+        Matcher lines = LINES.matcher(text);
+        int count = 0, skipped = 0;
+        while (lines.find() && lines.end() > lines.start()) {
+            if (++count > MAX_LINES) throw new IOException("Log exceeds 50,000 lines; review a smaller copy. File unchanged.");
+            Entry entry = parse(lines.group(1), lines.start(), lines.end());
+            if (entry != null) entries.add(entry);
+            else if (!lines.group(1).isBlank()) skipped++;
         }
-        for (String line : lines) {
-            Entry e = parse(line);
-            if (e != null) out.add(e);
-        }
-        return out;
+        return new Snapshot(text, List.copyOf(entries), skipped);
     }
 
-    // Format A (RTP finder):   "x y z  dimension  timestamp"
-    // Format B (relog loader): "x y z  dimension  blockId  timestamp"
-    // Fields are separated by runs of whitespace; coords are the first 3 tokens.
-    private static Entry parse(String line) {
-        if (line == null) return null;
-        String raw = line;
-        line = line.trim();
-        if (line.isEmpty()) return null;
-        String[] tok = line.split("\\s+");
-        if (tok.length < 3) return null;
+    static Entry parse(String raw) { return parse(raw, -1, -1); }
+
+    private static Entry parse(String raw, int start, int end) {
+        if (raw == null || raw.isBlank() || raw.length() > 4096) return null;
+        String[] tokens = raw.strip().split("\\s+");
+        if (tokens.length < 3) return null;
         int x, y, z;
         try {
-            x = Integer.parseInt(tok[0]);
-            y = Integer.parseInt(tok[1]);
-            z = Integer.parseInt(tok[2]);
-        } catch (NumberFormatException e) {
-            return null;
+            x = Integer.parseInt(tokens[0]);
+            y = Integer.parseInt(tokens[1]);
+            z = Integer.parseInt(tokens[2]);
+        } catch (NumberFormatException ignored) { return null; }
+        String dimension = tokens.length > 3 ? tokens[3] : "unknown";
+        String block = "", timestamp = "";
+        if (tokens.length > 4) {
+            int timeStart = 4;
+            if (!looksLikeTimestamp(tokens[4])) { block = tokens[4]; timeStart = 5; }
+            timestamp = String.join(" ", java.util.Arrays.copyOfRange(tokens, timeStart, tokens.length));
         }
-        String dim = tok.length >= 4 ? tok[3] : "unknown";
-        String block = "";
-        String ts = "";
-        if (tok.length == 5) {
-            // Either blockId or timestamp. A timestamp contains ':' or '-'.
-            if (looksLikeTimestamp(tok[4])) ts = tok[4];
-            else block = tok[4];
-        } else if (tok.length >= 6) {
-            block = tok[4];
-            StringBuilder sb = new StringBuilder();
-            for (int i = 5; i < tok.length; i++) {
-                if (sb.length() > 0) sb.append(' ');
-                sb.append(tok[i]);
+        return new Entry(x, y, z, dimension, block, timestamp, raw, start, end);
+    }
+
+    private static boolean looksLikeTimestamp(String value) {
+        return value.matches("\\d{4}-\\d{2}-\\d{2}.*") || value.matches("\\d{1,2}:\\d{2}.*");
+    }
+
+    static List<Entry> filter(List<Entry> entries, String query, boolean nearest, double[] position) {
+        String[] words = query.strip().toLowerCase(Locale.ROOT).split("\\s+");
+        List<Entry> result = new ArrayList<>();
+        for (Entry entry : entries) {
+            String haystack = (entry.raw + " " + entry.dimension).toLowerCase(Locale.ROOT);
+            boolean match = true;
+            for (String word : words) if (!haystack.contains(word)) { match = false; break; }
+            if (match) result.add(entry);
+        }
+        Collections.reverse(result);
+        if (nearest && position != null) result.sort(Comparator.comparingDouble(e -> e.distanceTo(position[0], position[1])));
+        return result;
+    }
+
+    static Entry retainSelection(Entry selected, List<Entry> visible) {
+        return visible.contains(selected) ? selected : null;
+    }
+
+    /** Removes exactly this occurrence, preserving every other byte including malformed lines. */
+    static String without(Snapshot snapshot, Entry entry) throws IOException {
+        if (entry == null || !snapshot.entries().contains(entry) || entry.start < 0 || entry.end > snapshot.text().length()) {
+            throw new IOException("Selection is stale. Refresh and select the candidate again.");
+        }
+        return snapshot.text().substring(0, entry.start) + snapshot.text().substring(entry.end);
+    }
+
+    /** Atomic replacement only; a backup retains the original file, including duplicate records. */
+    public static Path remove(Path path, Snapshot snapshot, Entry entry) throws IOException {
+        String remaining = without(snapshot, entry);
+        if (!read(path).text().equals(snapshot.text())) throw new IOException("Log changed. Refresh before deleting; nothing deleted.");
+        String suffix = System.currentTimeMillis() + "-" + UUID.randomUUID();
+        Path staged = path.resolveSibling(path.getFileName() + ".review-" + suffix);
+        Path backup = path.resolveSibling(path.getFileName() + ".backup-" + suffix);
+        try {
+            Files.writeString(staged, remaining, StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW);
+            // A hard link keeps the original inode, including an already-open writer's late append.
+            // If unavailable, fail closed rather than falling back to a destructive in-place rewrite.
+            try {
+                Files.createLink(backup, path);
+            } catch (UnsupportedOperationException exception) {
+                throw new IOException("Safety backups unsupported on this file system; nothing deleted.", exception);
             }
-            ts = sb.toString();
+            if (!read(path).text().equals(snapshot.text())) throw new IOException("Log changed. Refresh before deleting; nothing deleted.");
+            Files.move(staged, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            return backup;
+        } finally {
+            Files.deleteIfExists(staged);
         }
-        return new Entry(x, y, z, dim, block, ts, raw);
     }
 
-    private static boolean looksLikeTimestamp(String s) {
-        return s.indexOf(':') >= 0 || s.indexOf('-') >= 0;
-    }
-
-    /** Rewrite bases.txt without the given entries (matched by raw line). Returns count removed. */
-    public static int remove(List<Entry> toRemove) {
-        if (toRemove == null || toRemove.isEmpty()) return 0;
-        java.util.Set<String> raws = new java.util.HashSet<>();
-        for (Entry e : toRemove) raws.add(e.raw.trim());
-        Path f = file();
-        if (!Files.exists(f)) return 0;
-        List<String> lines;
-        try {
-            lines = Files.readAllLines(f, StandardCharsets.UTF_8);
-        } catch (IOException e) {
-            return 0;
-        }
-        List<String> keep = new ArrayList<>();
-        int removed = 0;
-        for (String line : lines) {
-            if (raws.contains(line.trim())) removed++;
-            else keep.add(line);
-        }
-        try {
-            Files.write(f, keep, StandardCharsets.UTF_8,
-                StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-        } catch (IOException e) {
-            return 0;
-        }
-        return removed;
-    }
-
-    /** Current player position, or null if not in a world. */
     public static double[] playerPos() {
         Minecraft mc = Minecraft.getInstance();
-        if (mc == null || mc.player == null) return null;
-        return new double[] { mc.player.getX(), mc.player.getZ() };
+        return mc == null || mc.player == null ? null : new double[] {mc.player.getX(), mc.player.getZ()};
     }
 
-    /** Nicely shortened dimension label (minecraft:overworld -> overworld). */
-    public static String shortDim(String dim) {
-        if (dim == null) return "unknown";
-        int i = dim.indexOf(':');
-        String s = i >= 0 ? dim.substring(i + 1) : dim;
-        return s.isEmpty() ? "unknown" : s;
+    public static String shortDim(String dimension) {
+        if (dimension == null || dimension.isBlank()) return "unknown";
+        int colon = dimension.indexOf(':');
+        return colon < 0 ? dimension : dimension.substring(colon + 1);
     }
 
-    /** Nicely shortened block label (minecraft:shulker_box -> shulker_box). */
-    public static String shortBlock(String id) {
-        if (id == null) return "";
-        int i = id.indexOf(':');
-        return i >= 0 ? id.substring(i + 1) : id;
+    public static String shortBlock(String block) {
+        if (block == null) return "";
+        int colon = block.indexOf(':');
+        return colon < 0 ? block : block.substring(colon + 1);
     }
 
-    public static String formatDistance(double d) {
-        if (d >= 1000.0) return String.format(Locale.ROOT, "%.2f km", d / 1000.0);
-        return String.format(Locale.ROOT, "%.0f m", d);
+    public static String formatDistance(double distance) {
+        return distance >= 1000 ? String.format(Locale.ROOT, "%.2f km", distance / 1000)
+            : String.format(Locale.ROOT, "%.0f m", distance);
     }
 }

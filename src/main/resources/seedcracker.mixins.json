@@ -9,10 +9,16 @@
   "client": [
     "ClientLevelMixin",
     "ClientPacketListenerMixin",
+    "ConnectionSendMixin",
+    "HomeSetterChatMixin",
     "HudFlagTelemetryMixin",
     "LocalPlayerMixin",
     "ModuleLifecycleMixin",
     "MouseHandlerAccessor",
+    "SpectreSpawnerKeyboardInputMixin",
+    "SpectreSpawnerMinecraftMixin",
+    "SpectreSpawnerPacketListenerMixin",
+    "SusModeSettingMixin",
     "TranslateChatMixin"
   ],
   "injectors": {

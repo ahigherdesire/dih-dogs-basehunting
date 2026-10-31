@@ -47,7 +47,7 @@ public final class ItemFrameEspModule extends Module {
     private final Set<BlockPos> notified = new HashSet<>();
 
     public ItemFrameEspModule() {
-        super(SeedcrackerAddon.ID + ":item-frame-esp", "ItemFrame ESP",
+        super(SeedcrackerAddon.ID + ":item-frame-esp", "Item Frame ESP",
             "Highlights item frames holding valuable items (trophy walls = bases).");
     }
 
@@ -58,7 +58,9 @@ public final class ItemFrameEspModule extends Module {
     }
 
     @Override
-    public void onGameLeft() { if (com.autism.seedcracker.util.RelogPersistence.shouldDisableOnGameLeft()) setEnabledSilently(false);
+    public void onGameLeft() {
+        notified.clear(); // coords are per-world; keeping them suppresses alerts on the next server
+        if (com.autism.seedcracker.util.RelogPersistence.shouldDisableOnGameLeft()) setEnabledSilently(false);
     }
 
     @Override

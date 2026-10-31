@@ -19,17 +19,23 @@ import dihclient.modules.Module;
 public final class FinderOverlayModule extends Module {
 
     private final IntSetting overlapModules = add(new IntSetting(
-            "overlap-modules", "Hotspot min modules", 2, 2, 6, 1)
-        .description("Distinct finder modules that must agree in an area before it condenses to hotspots.")
-        .group("General"));
+            "overlap-modules", "Finder sources in 5x5 chunks", 2, 2, 6, 1)
+        .description("Condense when this many distinct finder sources flag the 5x5 area OR the flagged-chunk threshold is reached. Nearby signals need not be the same evidence.")
+        .group("Condense chunk flags"));
     private final IntSetting floodChunks = add(new IntSetting(
-            "flood-chunks", "Flood chunk count", 9, 3, 50, 1)
-        .description("Flags within a 5x5-chunk area before it counts as flooded (single noisy module, e.g. a kelp forest).")
-        .group("General"));
+            "flood-chunks", "Flagged chunks in 5x5 chunks", 9, 3, 50, 1)
+        .description("Condense when this many unique chunks are flagged in the 5x5 area OR the source threshold is reached. Display only: scans, object outlines and reports are unchanged.")
+        .group("Condense chunk flags"));
 
     public FinderOverlayModule() {
         super(SeedcrackerAddon.ID + ":finder-overlay", "Finder Overlay",
-            "Condenses flooded finder-flag areas to the most-overlapped hotspot chunks.");
+            "Display only: condenses dense or overlapping chunk flags into hotspots. Off shows individual flags; detection and reports continue. Hotspots are not proof of a base.");
+    }
+
+    /** Grouped into the Finders hub (it's a simple on/off tool); hidden from the main menu. */
+    @Override
+    public boolean showInModuleMenu() {
+        return false;
     }
 
     @Override
@@ -45,6 +51,13 @@ public final class FinderOverlayModule extends Module {
     @Override
     public void onGameLeft() { if (com.autism.seedcracker.util.RelogPersistence.shouldDisableOnGameLeft()) setEnabledSilently(false);
     }
+
+    @Override
+    protected void onSettingsReset() {
+        ChunkFlagRenderer.configureSmartOverlap(isEnabled(), overlapModules.get(), floodChunks.get());
+    }
+
+    @Override public String info() { return isEnabled() ? "Condensed chunk flags" : "Individual chunk flags"; }
 
     @Override
     protected void onOptionValueChanged(String settingId) {
