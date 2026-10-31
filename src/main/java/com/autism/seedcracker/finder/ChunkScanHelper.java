@@ -129,23 +129,26 @@ public final class ChunkScanHelper {
      * Returns the {@link LevelChunk}s within {@code chunkRadius} (Chebyshev, square bubble) of the
      * player's chunk that are actually loaded.
      *
-     * Uses {@code level.hasChunk(cx, cz)} to skip unloaded positions, then fetches the full
-     * {@link LevelChunk} via {@code level.getChunk(cx, cz)}.
+     * Uses non-loading {@code getChunkNow}; returned chunks are ordered nearest-first.
+     * The bounded 64-chunk ceiling exceeds all current finder settings.
      */
     public static List<LevelChunk> loadedChunksAround(Minecraft mc, int chunkRadius) {
         List<LevelChunk> out = new ArrayList<>();
         if (mc == null || mc.level == null || mc.player == null) return out;
-        int radius = Math.max(0, chunkRadius);
+        int radius = Math.clamp(chunkRadius, 0, 64);
         ChunkPos centre = mc.player.chunkPosition();
         for (int dx = -radius; dx <= radius; dx++) {
             for (int dz = -radius; dz <= radius; dz++) {
-                int cx = centre.x() + dx;
-                int cz = centre.z() + dz;
-                if (!mc.level.hasChunk(cx, cz)) continue;
-                LevelChunk chunk = mc.level.getChunk(cx, cz);
+                long cx = (long) centre.x() + dx, cz = (long) centre.z() + dz;
+                if (cx < Integer.MIN_VALUE || cx > Integer.MAX_VALUE || cz < Integer.MIN_VALUE || cz > Integer.MAX_VALUE) continue;
+                LevelChunk chunk = mc.level.getChunkSource().getChunkNow((int) cx, (int) cz);
                 if (chunk != null) out.add(chunk);
             }
         }
+        out.sort(java.util.Comparator.comparingLong((LevelChunk chunk) -> {
+            long dx = (long) chunk.getPos().x() - centre.x(), dz = (long) chunk.getPos().z() - centre.z();
+            return dx * dx + dz * dz;
+        }).thenComparingInt(chunk -> chunk.getPos().x()).thenComparingInt(chunk -> chunk.getPos().z()));
         return out;
     }
 

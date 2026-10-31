@@ -1,6 +1,7 @@
 package com.autism.seedcracker.modules;
 
-import java.io.File;
+import java.nio.file.Path;
+import java.util.concurrent.Future;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -11,7 +12,13 @@ import java.util.Set;
 import com.autism.seedcracker.SeedcrackerAddon;
 import com.autism.seedcracker.render.BlockEspRenderer;
 import com.autism.seedcracker.util.tunnel.LegitMovement;
+import com.autism.seedcracker.schematic.SchematicBuildState;
+import com.autism.seedcracker.schematic.SchematicFiles;
+import com.autism.seedcracker.schematic.SchematicLoader;
+import com.autism.seedcracker.gui.schematic.SchematicSetupScreen;
 
+import dihclient.api.module.ActionSetting;
+import dihclient.api.module.KeybindSetting;
 import dihclient.api.module.BoolSetting;
 import dihclient.api.module.ColorSetting;
 import dihclient.api.module.EnumSetting;
@@ -21,16 +28,9 @@ import dihclient.modules.Module;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
-import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.nbt.CompoundTag;
-import net.minecraft.nbt.ListTag;
-import net.minecraft.nbt.NbtAccounter;
-import net.minecraft.nbt.NbtIo;
-import net.minecraft.nbt.Tag;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
@@ -41,7 +41,7 @@ import net.minecraft.world.phys.Vec3;
  * Schematic Builder.
  *
  * Loads a schematic file (.litematic / .schem / legacy .schematic), renders a layer-by-layer
- * ghost preview in the world, and auto-builds it. The auto-placer is deliberately "legit":
+ * ghost preview in the world, and builds only after explicit Start. The auto-placer is deliberately "legit":
  * it walks to within vanilla reach, eases its view onto the placement face with the
  * {@link LegitMovement} human-mouse engine (no instant head-snap), and places through the real
  * {@code useItemOn} interaction so the packets match a real player right-clicking blocks.
@@ -55,69 +55,122 @@ import net.minecraft.world.phys.Vec3;
 public final class SchematicBuilderModule extends Module {
 
     private static final double MAX_REACH = 4.5;
-    private static final double WALK_NEAR = 6.0;
+    private static final int GHOST_LIMIT = 4096;
 
     public SchematicBuilderModule() {
         super(SeedcrackerAddon.ID + ":schematic-builder", "Schematic Builder",
-            "Loads a schematic and auto-builds it layer by layer with legit (human-like) placement.");
+            "Preview first. Open setup to choose a file, set an origin and review materials. Only Start builds.");
     }
 
     // ---- settings ----
-    private final StringSetting schematicPath = add(new StringSetting("schematic-path", "Schematic file", "")
-        .description("Path to a .litematic / .schem / .schematic file (relative to the DIH config folder or absolute).")
-        .group("File"));
-    private final BoolSetting load = add(new BoolSetting("load", "Load schematic", false)
-        .description("Toggle on to (re)load the file above.").group("File"));
-    private final BoolSetting setOrigin = add(new BoolSetting("set-origin", "Set origin", false)
-        .description("Toggle on to set the build origin to the block you're looking at (or your feet).").group("File"));
-    private final BoolSetting build = add(new BoolSetting("build", "Auto-build", false)
-        .description("Start / stop auto-building.").group("Build"));
+    private final ActionSetting openSetup = add(new ActionSetting("open-setup", "Guided setup", this::openSetup)
+        .buttonLabel("Open setup").description("File -> origin / rotation -> materials -> explicit Start. Opening pauses building.")
+        .group("1. Setup").availableOffline());
+    private final KeybindSetting setupKey = add(new KeybindSetting("setup-key", "Open setup key", -1)
+        .description("Optional shortcut, including while disabled. Release then press in gameplay; never starts building.")
+        .group("1. Setup").availableOffline());
+    private final StringSetting schematicPath = add(new StringSetting("schematic-path", "File path (or use Open setup)", "")
+        .description("Paste a .litematic / .schem / .schematic path. Relative paths start in the DIH config folder.")
+        .group("1. Setup").availableOffline());
+    private final BoolSetting load = add(new BoolSetting("load", "Load preview (one shot)", false)
+        .description("Loads without walking, placing or mining. Invalid files keep the previous preview.").group("1. Setup").availableOffline());
+    private final StringSetting recentFiles = add(new StringSetting("recent-files", "Recent schematics", "")
+        .visibleWhen(() -> false).keepOnReset().availableOffline());
+    private final BoolSetting setOrigin = add(new BoolSetting("set-origin", "Use crosshair / feet as origin", false)
+        .description("One shot. Anchor above the looked-at block, or at your feet. Pauses and resets progress.").group("2. Origin"));
+    private final ActionSetting startAction = add(new ActionSetting("start", "Start / resume", this::openReview)
+        .buttonLabel("Review & Start").description("Review materials and confirm Start in setup. Never starts from saved settings.")
+        .group("3. Controls").availableOffline());
+    private final ActionSetting pauseAction = add(new ActionSetting("pause", "Pause", () -> pauseBuild("Paused by you. Press Start to continue."))
+        .buttonLabel("Pause").group("3. Controls").availableOffline());
+    private final ActionSetting stopAction = add(new ActionSetting("stop", "Stop", this::stopBuild)
+        .buttonLabel("Stop").description("Release controls and reset the pass. Keep the file and preview.")
+        .group("3. Controls").availableOffline());
+    private final BoolSetting build = add(new BoolSetting("build", "Running (use Review & Start)", false)
+        .readonlySummary().description("Runtime status only. A saved true value cannot start automation; false pauses it.")
+        .group("3. Controls"));
+    private final ActionSetting safePreset = add(new ActionSetting("safe-preset", "Safe placement preset", this::applySafePreset)
+        .buttonLabel("Apply safe preset").description("Pause; visible aim and human walking; no mining, bridging or chest access.")
+        .group("3. Controls").availableOffline());
     public enum BuildOrder { ADAPTIVE, LAYERED }
-    private final EnumSetting<BuildOrder> buildOrder = add(new EnumSetting<>("build-order", "Build order", BuildOrder.ADAPTIVE, BuildOrder.values())
-        .description("ADAPTIVE = advance at 95% of a layer (skips unreachable spots, faster). LAYERED = strict printer: a layer must be 100% placed before the next starts (keeps retrying misses).")
-        .group("Build"));
+    private final EnumSetting<BuildOrder> buildOrder = add(new EnumSetting<>("build-order", "Build order", BuildOrder.LAYERED, BuildOrder.values())
+        .description("LAYERED waits for every block and pauses after 8 failed passes. ADAPTIVE advances at 95%; inspect missed blocks afterwards.")
+        .group("Advanced: Placement").visibleWhen(() -> bool("advanced")));
+    private final BoolSetting renderGhost = add(new BoolSetting("render-ghost", "Ghost preview", true)
+        .description("Show a yellow origin, full bounds and up to 4096 ghost boxes; enable the module for world preview.").group("2. Origin"));
+    private final BoolSetting restock = add(new BoolSetting("restock", "Allow nearby chest restock", false)
+        .description("Opt-in: take missing blocks from reachable containers. Pauses if items must be moved from inventory to hotbar.")
+        .group("Advanced: Restock").visibleWhen(() -> bool("advanced")));
+    private final IntSetting chestRange = add(new IntSetting("chest-range", "Chest range", 12, 4, 32, 1)
+        .description("Search radius; actual openings are always capped to vanilla reach (4.5 blocks).")
+        .group("Advanced: Restock").visibleWhen(() -> bool("advanced") && restock.get()));
+    private final IntSetting chestDelay = add(new IntSetting("chest-delay", "Chest action delay", 4, 0, 20, 1)
+        .description("Ticks between opening / taking from a chest.")
+        .group("Advanced: Restock").visibleWhen(() -> bool("advanced") && restock.get()));
+
+    private final BoolSetting showAdvanced = add(new BoolSetting("advanced", "Show advanced controls", false)
+        .description("Reveal placement timing, aim / walk styles and destructive mining / scaffold / chest opt-ins.")
+        .group("4. Advanced").availableOffline());
     private final IntSetting placeDelay = add(new IntSetting("place-delay", "Place delay (ticks)", 2, 0, 20, 1)
-        .description("Ticks to wait between block placements.").group("Build"));
-    private final IntSetting rotationSteps = add(new IntSetting("rotation", "Rotate schematic", 0, 0, 3, 1)
-        .description("Rotate the whole schematic 0/90/180/270 degrees.").group("Build"));
+        .description("Ticks to wait between block placements.").group("Advanced: Placement").visibleWhen(showAdvanced::get));
+    private final IntSetting rotationSteps = add(new IntSetting("rotation", "Rotation (quarter turns)", 0, 0, 3, 1)
+        .description("0/90/180/270 degrees around the origin. Positions only; block facing/axis/half are NOT reproduced. Changing pauses and resets progress.")
+        .formatter(value -> (Integer.parseInt(value) * 90) + " degrees").group("2. Origin"));
     private final BoolSetting silentPlace = add(new BoolSetting("silent-place", "Silent rotation", false)
         .description("Face placement via movement packets (camera stays). OFF eases the real camera (recommended - the crosshair must be on the block to place).")
-        .group("Build"));
+        .group("Advanced: Placement").visibleWhen(showAdvanced::get));
     public enum AimStyle { LEGIT, WIND_GRAVITY }
     private final EnumSetting<AimStyle> aimStyle = add(new EnumSetting<>("aim-style", "Aim style", AimStyle.WIND_GRAVITY, AimStyle.values())
         .description("Placement aim easing. LEGIT = time-eased human mouse. WIND_GRAVITY = wocky AdvancedRotationModel (velocity + gust + gravity, most human).")
-        .group("Build"));
-    private final BoolSetting renderGhost = add(new BoolSetting("render-ghost", "Ghost preview", true)
-        .description("Render the layer-by-layer ghost boxes.").group("Render"));
-    private final ColorSetting placedColor = add(new ColorSetting("placed-color", "Placed colour", 0x6400FF00).group("Render"));
-    private final ColorSetting currentColor = add(new ColorSetting("current-color", "Current layer colour", 0x9600FFFF).group("Render"));
-    private final ColorSetting missedColor = add(new ColorSetting("missed-color", "Missed colour", 0x78FF0000).group("Render"));
-    private final ColorSetting futureColor = add(new ColorSetting("future-color", "Future colour", 0x40808080).group("Render"));
+        .group("Advanced: Placement").visibleWhen(showAdvanced::get));
+    private final ColorSetting placedColor = add(new ColorSetting("placed-color", "Placed colour", 0x6400FF00).group("Advanced: Preview").visibleWhen(showAdvanced::get));
+    private final ColorSetting currentColor = add(new ColorSetting("current-color", "Current layer colour", 0x9600FFFF).group("Advanced: Preview").visibleWhen(showAdvanced::get));
+    private final ColorSetting missedColor = add(new ColorSetting("missed-color", "Missed colour", 0x78FF0000).group("Advanced: Preview").visibleWhen(showAdvanced::get));
+    private final ColorSetting futureColor = add(new ColorSetting("future-color", "Future colour", 0x40808080).group("Advanced: Preview").visibleWhen(showAdvanced::get));
     private final BoolSetting pathfind = add(new BoolSetting("pathfind", "A* pathfinding", true)
-        .description("Walk around obstacles to reach blocks (straight-line walk when off).").group("Build"));
+        .description("Walk around obstacles to reach blocks (straight-line walk when off).").group("Advanced: Placement").visibleWhen(showAdvanced::get));
     private final BoolSetting legitWalk = add(new BoolSetting("legit-walk", "Legit walk (key-press)", true)
         .description("Walk by pressing real movement keys (nyx HumanMotionSim) with ledge/fall-hazard stop - most legit, no velocity/packet edits.")
-        .group("Build"));
-    private final BoolSetting scaffold = add(new BoolSetting("scaffold", "Scaffold bridging", true)
-        .description("Place temporary blocks to bridge gaps / reach high spots while building.").group("Build"));
-    private final BoolSetting restock = add(new BoolSetting("restock", "Chest restock", false)
-        .description("OPTIONAL: when a needed block is missing, open a nearby chest/barrel/shulker/ender-chest and take it, then resume.")
-        .group("Restock"));
-    private final BoolSetting clearBlocks = add(new BoolSetting("clear-blocks", "Mine out wrong blocks", true)
-        .description("Mine out blocks occupying schematic spots (where it wants air or a different block) before placing.")
-        .group("Build"));
+        .group("Advanced: Placement").visibleWhen(showAdvanced::get));
+    private final BoolSetting scaffold = add(new BoolSetting("scaffold", "Allow temporary scaffold blocks", false)
+        .description("Place temporary blocks to bridge gaps / reach high spots while building.").group("Advanced: Placement").visibleWhen(showAdvanced::get));
+    private final BoolSetting clearBlocks = add(new BoolSetting("clear-blocks", "Allow mining wrong blocks", false)
+        .description("Destructive opt-in: mine wrong blocks occupying non-air targets and obstructing walking. Air in the file is never cleared.")
+        .group("Advanced: Placement").visibleWhen(showAdvanced::get));
     private final BoolSetting autoTool = add(new BoolSetting("auto-tool", "Auto tool swap", true)
         .description("Swap to the best hotbar tool when mining out a block (faster clearing).")
-        .group("Build"));
-    private final IntSetting chestRange = add(new IntSetting("chest-range", "Chest range", 12, 4, 32, 1)
-        .description("How far (blocks) to search for a chest with the needed block.")
-        .group("Restock").visibleWhen(() -> restock.get()));
-    private final IntSetting chestDelay = add(new IntSetting("chest-delay", "Chest action delay", 4, 0, 20, 1)
-        .description("Ticks between opening / taking from a chest.")
-        .group("Restock").visibleWhen(() -> restock.get()));
+        .group("Advanced: Placement").visibleWhen(showAdvanced::get));
+    private final BoolSetting debug = add(new BoolSetting("debug", "Debug tracing", false)
+        .description("Trace layer/task/restock/verify transitions to chat + /flaglog (diagnose stalls).")
+        .group("Advanced: Placement").visibleWhen(showAdvanced::get));
 
     // ---- state ----
-    private final Map<BlockPos, BlockState> schematic = new HashMap<>();
+    private Map<BlockPos, BlockState> schematic = Map.of();
+    private SchematicLoader.Loaded preview;
+    private long previewRevision;
+    private List<Map.Entry<BlockPos, BlockState>> entries = List.of();
+    private final Map<Item, Integer> requiredMaterials = new HashMap<>();
+    private final Map<Item, Integer> auditMatches = new HashMap<>();
+    private Map<Item, Integer> worldMatches = Map.of();
+    private int auditIndex, auditMatched, matchedBlocks, auditUnknown, unknownBlocks;
+    private boolean audited;
+    private Future<SchematicLoader.Loaded> loading;
+    private String fileNotice = "";
+    private final SchematicBuildState intent = new SchematicBuildState();
+    private java.lang.ref.WeakReference<net.minecraft.client.multiplayer.ClientLevel> previewWorld = new java.lang.ref.WeakReference<>(null);
+    private int observedRotation;
+    private int previewTicks;
+    private record GhostLayer(List<AABB> boxes, int color, int fill) {}
+    private final Map<String, GhostLayer> ghostLayers = new HashMap<>();
+    private boolean changingSettings, setupKeyReleased;
+    private boolean ownsWalk, ownsAttack;
+    private float[] ownedHumanLook;
+    private int ownedContainer = -1;
+    private int restockTimeout;
+    private boolean restockRequested;
+    private BlockPos verifyTarget;
+    private BlockState verifyState;
+    private int verifyTaskIndex;
     private BlockPos origin = null;
     private int minY, maxY;
     private boolean loaded = false;
@@ -127,21 +180,20 @@ public final class SchematicBuilderModule extends Module {
     private int layerIndex = 0;
     private int placeCooldown = 0;
     private int totalBlocks = 0;
-    private final Set<BlockPos> placed = new HashSet<>();
     private final LegitMovement look = new LegitMovement();
-    private int totalBlocksCount = 0;
     private boolean pendingPlace = false;
     private int pendingSlot = -1;
     private BlockHitResult pendingHit = null;
+    private BlockPos pendingTarget;
     private boolean pendingSneak = false;
-    private boolean faceScanFailureLogged = false;
+    /** Placement awaiting world-state confirmation: expected block + bounded retry window. */
+    private BlockPos verifyPos = null;
+    private int verifyTicks = 0;
+    private int verifyRetries = 0;
 
     // pathfinding + scaffold
     private List<BlockPos> currentPath = new ArrayList<>();
     private int pathIndex = 0;
-    private final Set<BlockPos> tempBlocks = new HashSet<>();
-    private BlockPos scaffoldTarget = null;
-    private int scaffoldAttempts = 0;
     // restock
     private enum RestockState { NONE, SEARCHING, OPENING, TAKING }
     private RestockState restockState = RestockState.NONE;
@@ -158,123 +210,386 @@ public final class SchematicBuilderModule extends Module {
 
     @Override
     public void onEnable() {
-        look.reset();
-        placeCooldown = 0;
-        stuck.reset();
+        observeWorld();
+        previewOnly("Preview only. Open setup, check the origin and materials, then press Start.");
+        setTransient("load", "false");
+        setTransient("set-origin", "false");
+        setupKeyReleased = false;
     }
 
     @Override
     public void onDisable() {
-        BlockEspRenderer.clearBox(id() + ":p");
-        BlockEspRenderer.clearBox(id() + ":c");
-        BlockEspRenderer.clearBox(id() + ":m");
-        BlockEspRenderer.clearBox(id() + ":f");
-        com.autism.seedcracker.util.tunnel.SilentRotation.clear();
-        currentPath.clear();
-        pathIndex = 0;
-        tempBlocks.clear();
-        scaffoldTarget = null;
-        scaffoldAttempts = 0;
-        resetRestock();
-        searchedChests.clear();
-        pendingPlace = false;
-        pendingSlot = -1;
-        pendingHit = null;
-        pendingSneak = false;
-        Minecraft mc = Minecraft.getInstance();
-        if (mc.options != null) {
-            mc.options.keyUp.setDown(false);
-            mc.options.keyJump.setDown(false);
-            mc.options.keyAttack.setDown(false);
-            mc.options.keyShift.setDown(false); // pendingSneak path may have latched it
-            mc.options.keyUse.setDown(false);
+        cancelLoad();
+        stopBuild();
+        clearGhost();
+        setupKeyReleased = false;
+    }
+
+    @Override
+    protected void onSettingsReset() {
+        cancelLoad();
+        previewOnly("Settings reset. Review the preview and press Start explicitly.");
+        invalidateGeometry();
+    }
+
+    @Override
+    protected void onOptionValueChanged(String key) {
+        if (changingSettings || intent == null) return;
+        if ("load".equals(key) && load.get()) {
+            setTransient("load", "false");
+            loadPreview(schematicPath.get());
+        } else if ("set-origin".equals(key) && setOrigin.get()) {
+            setTransient("set-origin", "false");
+            setOriginHere(Minecraft.getInstance());
+        } else if ("rotation".equals(key)) {
+            invalidateGeometry();
+        } else if ("build".equals(key)) {
+            pauseBuild("Use Review & Start to begin; saved build values never arm placement.");
+        } else if (!"recent-files".equals(key) && !"load".equals(key) && !"set-origin".equals(key)
+                && !"setup-key".equals(key) && !"advanced".equals(key) && intent.running()) {
+            pauseBuild("Settings changed. Review them and press Start again.");
         }
     }
 
     @Override
-    public void onGameLeft() { if (com.autism.seedcracker.util.RelogPersistence.shouldDisableOnGameLeft()) setEnabledSilently(false);
+    public void onGameLeft() {
+        cancelLoad();
+        stopBuild();
+        origin = null;
+        previewWorld.clear();
+        layerTasks.clear();
+        clearAudit();
+        clearGhost();
+        if (com.autism.seedcracker.util.RelogPersistence.shouldDisableOnGameLeft()) setEnabledSilently(false);
+    }
+
+    @Override public boolean ticksWhenDisabled() { return true; }
+    @Override public boolean hasDisabledTickWork() {
+        return loading != null || setupKey.get() >= 0 || load.get() || setOrigin.get() || build.get();
+    }
+
+    @Override public void onMouseRotation(double dx, double dy) {
+        if (intent.running() && !intent.waitingForRelease() && Math.abs(dx) + Math.abs(dy) > 0.01) {
+            pauseBuild("Mouse takeover. Press Start when ready to continue.");
+        }
     }
 
     @Override
     public void tick() {
         Minecraft mc = Minecraft.getInstance();
-        if (mc.player == null || mc.level == null) return;
-
-        if (load.get()) { load.set(false); loadSchematic(mc); }
-        if (setOrigin.get()) { setOrigin.set(false); setOriginHere(mc); }
-
-        if (renderGhost.get() && loaded && origin != null) renderGhost(mc);
-
-        if (!build.get() || !loaded || origin == null) return;
-
-        // Restock runs even while a container GUI is open (it needs the chest screen). When the
-        // restock machine is active it owns the tick; the normal build is paused.
+        pollSetupKey(mc);
+        if (load.get()) { setTransient("load", "false"); loadPreview(schematicPath.get()); }
+        if (setOrigin.get()) { setTransient("set-origin", "false"); setOriginHere(mc); }
+        updateSetup();
+        if (!isEnabled() || mc.player == null || mc.level == null) return;
+        if (renderGhost.get() && loaded && origin != null) {
+            if (ghostLayers.isEmpty() || ++previewTicks % 5 == 0) renderGhost(mc);
+            else ghostLayers.forEach((key, layer) -> BlockEspRenderer.feedBoxes(key, layer.boxes(), layer.color(), layer.fill()));
+        } else clearGhost();
+        if (!intent.running()) {
+            if (build.get()) setTransient("build", "false");
+            return;
+        }
+        boolean ownedRestockScreen = restock.get() && restockState != RestockState.NONE
+            && !(mc.gui.screen() instanceof SchematicSetupScreen)
+            && mc.gui.screen() instanceof net.minecraft.client.gui.screens.inventory.AbstractContainerScreen<?>
+            && (ownedContainer == mc.player.containerMenu.containerId
+                || restockState == RestockState.OPENING && restockRequested && restockTimeout > 0);
+        if (!intent.allowTick(mc.level, mc.gui.screen() != null && !ownedRestockScreen)) {
+            releaseWork();
+            setTransient("build", "false");
+            return;
+        }
+        if (!mc.isWindowActive()) {
+            pauseBuild("Window unfocused. Press Start when ready to continue.");
+            return;
+        }
+        if (!intent.allowInputTick(manualInput(mc))) {
+            if (!intent.running()) { releaseWork(); setTransient("build", "false"); }
+            return;
+        }
+        if (!build.get() || !loaded || origin == null) {
+            pauseBuild("Preview not ready. Choose a file and origin, then Start.");
+            return;
+        }
+        com.autism.seedcracker.util.DebugProbe.setEnabled(id(), debug.get());
+        com.autism.seedcracker.util.DebugProbe.traceChange(id(), "state",
+            "layer=" + currentLayer + " task=" + layerIndex + "/" + layerTasks.size() + " restock=" + restockState);
         if (restock.get() && restockState != RestockState.NONE) {
             tickRestock(mc);
             return;
         }
-        if (mc.gui.screen() != null) return; // don't build while a GUI is open
-        // No place/dig packets within the container grace window.
         if (com.autism.seedcracker.util.ContainerMutex.containerBusy(mc)) {
-            com.autism.seedcracker.util.tunnel.HumanMotionSim.releaseAll();
+            pauseBuild("Container grace period. Close the container, then press Start.");
+            return;
+        }
+        if (com.autism.seedcracker.motion.Motion.isBusy()) {
+            pauseBuild("Another movement controller is active. Stop it, then press Start.");
             return;
         }
         tickBuild(mc);
-
-        // Stuck detector: only meaningful while walking to a target (building in place is fine).
         if (!currentPath.isEmpty() && pathIndex < currentPath.size()) {
-            stuck.setAction("layer=" + currentLayer + " task=" + layerIndex + "/" + layerTasks.size()
-                + " path=" + pathIndex + "/" + currentPath.size() + " restock=" + restockState);
+            stuck.setAction("layer=" + currentLayer + " task=" + layerIndex + "/" + layerTasks.size());
             stuck.tick(mc);
-        } else {
-            stuck.reset();
-        }
+        } else stuck.reset();
     }
 
-    // ---- origin ----
+    // ---- origin and explicit user controls ----
     private void setOriginHere(Minecraft mc) {
-        if (mc.hitResult instanceof BlockHitResult bhr
-            && mc.hitResult.getType() == net.minecraft.world.phys.HitResult.Type.BLOCK) {
-            origin = bhr.getBlockPos().above();
-        } else {
-            origin = mc.player.blockPosition();
+        if (mc.player == null || mc.level == null) { fileNotice = "Join a world to set an origin."; return; }
+        if (mc.hitResult instanceof BlockHitResult hit
+            && hit.getType() == net.minecraft.world.phys.HitResult.Type.BLOCK) setBuildOrigin(hit.getBlockPos().above());
+        else setBuildOrigin(mc.player.blockPosition());
+    }
+
+    public void useCrosshairOrigin() { setOriginHere(Minecraft.getInstance()); }
+    public void useFeetOrigin() {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player != null && mc.level != null) setBuildOrigin(mc.player.blockPosition());
+    }
+
+    public boolean setBuildOrigin(BlockPos position) {
+        Minecraft mc = Minecraft.getInstance();
+        observeWorld();
+        if (mc.level == null || mc.player == null) { fileNotice = "Join a world to set an origin."; return false; }
+        if (Math.abs((long) position.getX()) > 29_995_000 || Math.abs((long) position.getZ()) > 29_995_000
+                || position.getY() < mc.level.getMinY() || position.getY() > mc.level.getMaxY()) {
+            fileNotice = "Origin must be inside the world's height and coordinate limits.";
+            return false;
         }
-        placed.clear();
+        origin = position.immutable();
+        invalidateGeometry();
+        fileNotice = "Origin set. Preview it in the world before Start.";
+        return true;
+    }
+
+    public void setRotation(int steps) { rotationSteps.set(Math.floorMod(steps, 4)); }
+
+    private void invalidateGeometry() {
+        previewOnly("Origin / rotation changed. Preview the new bounds, then press Start.");
+        observedRotation = rotationSteps.get();
         currentLayer = minY;
         layerRetries = 0;
+        clearAudit();
+        rebuildLayerTasks();
+        clearGhost();
+    }
+
+    private void observeWorld() {
+        Minecraft mc = Minecraft.getInstance();
+        if (previewWorld.get() == mc.level && (mc.level != null || origin == null)) return;
+        previewWorld = new java.lang.ref.WeakReference<>(mc.level);
+        origin = null;
+        previewOnly("World changed. Set an origin in this world, then press Start.");
+        clearAudit();
+        layerTasks.clear();
+        clearGhost();
+    }
+
+    public void openSetup() { openSetup(false); }
+    private void openReview() { openSetup(true); }
+    private void openSetup(boolean review) {
+        Minecraft mc = Minecraft.getInstance();
+        pauseBuild("Setup open. Preview is safe; only Start closes setup and builds.");
+        mc.gui.setScreen(new SchematicSetupScreen(mc.gui.screen(), this, review));
+    }
+
+    public void enablePreview() {
+        if (!isEnabled()) setEnabled(true);
+        pauseBuild(isEnabled() ? "Preview only. Reopen setup to review materials and Start."
+            : "The client did not enable the preview. Check client activation and module access.");
+    }
+
+    public boolean startBuild() {
+        Minecraft mc = Minecraft.getInstance();
+        observeWorld();
+        String problem = startProblem();
+        if (!problem.isEmpty()) { pauseBuild(problem); fileNotice = problem; return false; }
+        if (mc.gui.screen() != null) {
+            pauseBuild("Use setup's Start button to close menus and begin.");
+            fileNotice = intent.reason();
+            return false;
+        }
+        if (!isEnabled()) setEnabled(true);
+        if (!isEnabled()) {
+            pauseBuild("The client did not enable Schematic Builder. Check client activation and module access, then try again.");
+            fileNotice = intent.reason();
+            return false;
+        }
+        releaseWork();
+        if (currentLayer > maxY) currentLayer = minY;
+        rebuildLayerTasks();
+        if (!intent.start(mc.level, loaded && origin != null && loading == null, false)) return false;
+        fileNotice = "";
+        setTransient("build", "true");
+        return true;
+    }
+
+    public String startProblem() {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.level == null || mc.player == null) return "Join a world, then set the origin.";
+        if (loading != null) return "Wait for the file load to finish.";
+        if (!loaded) return "Load a schematic preview first.";
+        if (origin == null || previewWorld.get() != mc.level) return "Set an origin in this world.";
+        if (origin.getY() + maxY > mc.level.getMaxY()) return "Selection exceeds world height. Lower the origin.";
+        if (mc.gameMode == null || !mc.player.isAlive()) return "Wait for the player to be ready in this world.";
+        if (mc.player.isSpectator()) return "Leave spectator mode before building.";
+        return "";
+    }
+
+    public void pauseBuild(String reason) {
+        intent.pause(reason);
+        releaseWork();
+        setTransient("build", "false");
+    }
+
+    public void stopBuild() {
+        intent.stop("Stopped. Preview kept; Start begins a fresh pass (existing blocks are skipped).");
+        releaseWork();
+        setTransient("build", "false");
+        currentLayer = minY;
+        layerRetries = 0;
+        rebuildLayerTasks();
+    }
+
+    private void previewOnly(String reason) {
+        intent.preview(reason);
+        releaseWork();
+        setTransient("build", "false");
+    }
+
+    public void applySafePreset() {
+        pauseBuild("Safe preset applied. No mining, scaffolding or chest access. Review, then Start.");
+        for (String key : List.of("clear-blocks", "scaffold", "restock", "silent-place")) setTransient(key, "false");
+        for (String key : List.of("pathfind", "legit-walk", "render-ghost")) setTransient(key, "true");
+        setTransient("build-order", "LAYERED");
+        setTransient("place-delay", "2");
+        try { persistConfiguredState(); }
+        catch (RuntimeException e) { fileNotice = "Safe preset active, but it could not be saved: " + e.getMessage(); }
+    }
+
+    private void setTransient(String key, String value) {
+        changingSettings = true;
+        try { setValueTransient(key, value); }
+        finally { changingSettings = false; }
+    }
+
+    private void releaseWork() {
+        Minecraft mc = Minecraft.getInstance();
+        stopWalk(mc);
+        releaseAttack(mc);
+        com.autism.seedcracker.motion.RotationEngine.release(id());
+        resetRestock();
+        look.reset();
+        stuck.reset();
+        pendingPlace = false;
+        pendingSlot = -1;
+        pendingHit = null;
+        pendingSneak = false;
+        pendingTarget = null;
+        verifyPos = null;
+        verifyTarget = null;
+        verifyState = null;
+        verifyTicks = verifyRetries = 0;
+        placeCooldown = 0;
         currentPath.clear();
         pathIndex = 0;
-        tempBlocks.clear();
-        resetRestock();
         searchedChests.clear();
-        rebuildLayerTasks();
-        msg(mc, "Origin set to " + origin.getX() + " " + origin.getY() + " " + origin.getZ());
+    }
+
+    private void releaseAttack(Minecraft mc) {
+        if (ownsAttack && mc.options != null) {
+            boolean manual = physicalKey(mc, mc.options.keyAttack);
+            mc.options.keyAttack.setDown(manual);
+            if (!manual && mc.gameMode != null) mc.gameMode.stopDestroyBlock();
+        }
+        ownsAttack = false;
+    }
+
+    private static boolean physicalKey(Minecraft mc, net.minecraft.client.KeyMapping binding) {
+        return physicalKey(mc, binding, false);
+    }
+
+    private static boolean physicalKey(Minecraft mc, net.minecraft.client.KeyMapping binding, boolean unknownHeld) {
+        if (mc.getWindow() == null || !mc.isWindowActive()) return false;
+        try {
+            var key = com.mojang.blaze3d.platform.InputConstants.getKey(binding.saveString());
+            if (key.getValue() < 0) return false;
+            if (key.getType() == com.mojang.blaze3d.platform.InputConstants.Type.MOUSE) {
+                return com.autism.seedcracker.compat.McCompat.mouseDown(mc, key.getValue());
+            }
+            if (com.autism.seedcracker.compat.McCompat.isKeyboardKey(key)) {
+                return com.autism.seedcracker.compat.McCompat.keyDown(mc, key.getValue());
+            }
+            return unknownHeld; // Pause on unknown bindings, but never synthesize a held key when releasing.
+        } catch (IllegalArgumentException e) { return unknownHeld; }
+    }
+
+    private static boolean manualInput(Minecraft mc) {
+        if (mc.options == null) return false;
+        if (com.autism.seedcracker.compat.McCompat.mouseDown(mc, com.mojang.blaze3d.platform.InputConstants.MOUSE_BUTTON_LEFT)
+                || com.autism.seedcracker.compat.McCompat.mouseDown(mc, com.mojang.blaze3d.platform.InputConstants.MOUSE_BUTTON_RIGHT)) return true;
+        return physicalKey(mc, mc.options.keyUp, true) || physicalKey(mc, mc.options.keyDown, true)
+            || physicalKey(mc, mc.options.keyLeft, true) || physicalKey(mc, mc.options.keyRight, true)
+            || physicalKey(mc, mc.options.keyJump, true) || physicalKey(mc, mc.options.keyShift, true)
+            || physicalKey(mc, mc.options.keyAttack, true) || physicalKey(mc, mc.options.keyUse, true);
+    }
+
+    private void pollSetupKey(Minecraft mc) {
+        if (mc.gui.screen() != null || mc.player == null || !mc.isWindowActive() || setupKey.get() < 0) {
+            setupKeyReleased = false;
+            return;
+        }
+        boolean down = com.autism.seedcracker.compat.McCompat.keyDown(mc, setupKey.get());
+        if (!down) setupKeyReleased = true;
+        else if (setupKeyReleased) { setupKeyReleased = false; openSetup(); }
     }
 
     // ---- build state machine ----
     private void tickBuild(Minecraft mc) {
+        if (placeCooldown > 0) { placeCooldown--; return; }
+        // Verify before testing the end of a layer, including its LAST placement.
+        if (verifyPos != null) {
+            if (!mc.level.hasChunkAt(verifyPos)) { pauseBuild("Target chunk unloaded. Move nearer and Start again."); return; }
+            if (matches(mc.level.getBlockState(verifyPos), verifyState)) {
+                verifyPos = null;
+                verifyRetries = 0;
+            } else if (--verifyTicks <= 0) {
+                if (++verifyRetries >= 3) {
+                    com.autism.seedcracker.modules.FlagDetectorModule.report("place-fail", "SchematicBuilder", "placement not confirmed at " + verifyPos);
+                    pauseBuild("Placement not confirmed at " + verifyPos.toShortString() + ". Check reach / permissions, then Start.");
+                } else {
+                    layerIndex = verifyTaskIndex;
+                    verifyPos = null;
+                }
+            }
+            return;
+        }
         if (currentLayer > maxY) {
-            msg(mc, "Build complete! " + placed.size() + "/" + totalBlocks + " blocks.");
-            build.set(false);
+            intent.finish("Pass finished. Review world counts and missed blocks; Start retries.");
+            releaseWork();
+            setTransient("build", "false");
+            msg(mc, "Pass finished. Review missing blocks in setup; Start retries them.");
             return;
         }
         if (layerIndex >= layerTasks.size()) {
             // verify + advance
             int placedInLayer = 0;
             for (BlockPlaceTask t : layerTasks) {
-                if (mc.level.getBlockState(t.worldPos).equals(t.state)) placedInLayer++;
+                if (matches(mc.level.getBlockState(t.worldPos), t.state)) placedInLayer++;
             }
             boolean advance;
             if (buildOrder.get() == BuildOrder.LAYERED) {
                 // Strict printer: the layer must be COMPLETE before the next starts. Retry passes
                 // are capped so an unplaceable spot (bedrock hole, mob cage) can't loop forever.
-                advance = placedInLayer == layerTasks.size() || ++layerRetries > 8;
-                if (advance && placedInLayer < layerTasks.size()) {
-                    msg(mc, "Layer " + (currentLayer - minY + 1) + ": " + (layerTasks.size() - placedInLayer)
-                        + " spot(s) unplaceable after 8 passes - moving on.");
-                }
+                advance = placedInLayer == layerTasks.size();
             } else {
-                advance = placedInLayer >= (int) (layerTasks.size() * 0.95) || placedInLayer == layerTasks.size();
+                advance = placedInLayer >= (int) Math.ceil(layerTasks.size() * 0.95);
+            }
+            if (!advance && ++layerRetries > 8) {
+                pauseBuild("Layer has unreachable / blocked targets after 8 passes. Fix supports, then Start.");
+                layerRetries = 0;
+                return;
             }
             if (advance) {
                 currentLayer++;
@@ -286,12 +601,14 @@ public final class SchematicBuilderModule extends Module {
             return;
         }
 
-        if (placeCooldown > 0) { placeCooldown--; return; }
-
         BlockPlaceTask task = layerTasks.get(layerIndex);
+        if (!mc.level.hasChunkAt(task.worldPos)) {
+            pauseBuild("Target chunk unloaded at " + task.worldPos.toShortString() + ". Move nearer and Start.");
+            return;
+        }
         BlockState cur = mc.level.getBlockState(task.worldPos);
-        if (cur.equals(task.state)) {
-            placed.add(task.worldPos);
+        if (matches(cur, task.state)) {
+            releaseAttack(mc);
             layerIndex++;
             return;
         }
@@ -303,25 +620,27 @@ public final class SchematicBuilderModule extends Module {
                 // digOut returns false when it can't reach / finished this tick: fall through to re-check next tick
                 return;
             }
-            layerIndex++;
+            pauseBuild("Blocked at " + task.worldPos.toShortString() + ". Clear it manually, or opt into mining in advanced settings.");
             return;
         }
-        // Entity-free guard (Wocky canPlaceBlockClient): don't place into a cell occupied by a
-        // mob/armor stand/etc (the server rejects it) - skip it this pass, retry next.
-        if (entityBlocking(mc, task.worldPos)) return;
+        releaseAttack(mc);
+        if (entityBlocking(mc, task.worldPos)) {
+            pauseBuild("Entity in target " + task.worldPos.toShortString() + ". Move it away, then Start.");
+            return;
+        }
 
         // Find the item for this block in the hotbar.
         Item item = task.state.getBlock().asItem();
         int slot = findHotbarItem(mc, item);
         if (slot < 0) {
-            // Missing the block. If restock is on, go fetch it from a chest; otherwise skip.
-            if (restock.get()) {
+            if (restock.get() && !inventoryHas(mc, item)) {
                 neededItem = item;
                 restockState = RestockState.SEARCHING;
+                restockTimeout = 160;
                 searchedChests.clear();
-                return; // don't advance - resume after restock
+                return;
             }
-            layerIndex++;
+            pauseBuild("Put " + new ItemStack(item).getHoverName().getString() + " in the hotbar, then Start. See materials in setup.");
             return;
         }
 
@@ -346,54 +665,72 @@ public final class SchematicBuilderModule extends Module {
 
         // Swap first, then place on the NEXT tick (Water #2) so the server registers the held item
         // before the interact - reads as a real click instead of an instant swap-place.
-        if (pendingSlot != slot || !pendingPlace) {
+        if (pendingSlot != slot || !pendingPlace || !task.worldPos.equals(pendingTarget)) {
             com.autism.seedcracker.util.InvSync.select(mc, slot);
             pendingSlot = slot;
             pendingPlace = true;
             pendingHit = hit;
+            pendingTarget = task.worldPos;
             pendingSneak = scanSneak;
             return;
         }
+        pendingHit = hit;
 
         // Face the placement point with the legit human-mouse engine, then place.
         Vec3 target = pendingHit.getLocation();
         double dx = target.x - eye.x, dy = target.y - eye.y, dz = target.z - eye.z;
         float yaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
         float pitch = (float) -Math.toDegrees(Math.atan2(dy, Math.hypot(dx, dz)));
-        float[] rot = aimStyle.get() == AimStyle.WIND_GRAVITY
-            ? look.updateWindGravity(yaw, pitch)
-            : look.update(yaw, pitch);
+        boolean aimed;
         if (silentPlace.get()) {
-            com.autism.seedcracker.util.tunnel.SilentRotation.apply(rot[0], rot[1]);
+            aimed = com.autism.seedcracker.motion.RotationEngine.request(id(),
+                com.autism.seedcracker.motion.RotationEngine.PRIORITY_INTERACT, yaw, pitch, null, true);
         } else {
-            com.autism.seedcracker.util.tunnel.SilentRotation.clear();
-            mc.player.setYRot(rot[0]);
-            mc.player.setXRot(net.minecraft.util.Mth.clamp(rot[1], -90f, 90f));
+            float[] rot = aimStyle.get() == AimStyle.WIND_GRAVITY
+                ? look.updateWindGravity(yaw, pitch) : look.update(yaw, pitch);
+            if (!com.autism.seedcracker.motion.RotationEngine.write(id(), com.autism.seedcracker.motion.RotationEngine.PRIORITY_INTERACT, rot[0], rot[1])) return;
+            aimed = look.isRotationsDone();
         }
-        if (mc.gameMode != null) {
-            // Sneak when the support is a container (nyx ROTATE_SNEAK) or FaceScan says the click
-            // would otherwise be eaten by the block's use action (levers, doors, etc).
-            boolean sneakForContainer = pendingSneak || isContainer(mc, pendingHit.getBlockPos());
+        if (!aimed) return;
+        if (mc.gameMode == null || !validPlacementHit(mc, pendingHit, task.worldPos)) {
+            pauseBuild("Placement face occluded / out of reach. Move nearer or add a support, then Start.");
+            return;
+        }
+        boolean sneakForContainer = pendingSneak || isContainer(mc, pendingHit.getBlockPos());
+        boolean wasSneaking = mc.options.keyShift.isDown();
+        try {
             if (sneakForContainer) mc.options.keyShift.setDown(true);
             mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, pendingHit);
             com.autism.seedcracker.compat.McCompat.swing(mc.player, InteractionHand.MAIN_HAND);
-            if (sneakForContainer) mc.options.keyShift.setDown(false);
+        } finally {
+            if (sneakForContainer) mc.options.keyShift.setDown(wasSneaking);
         }
-        placed.add(task.worldPos);
+        if (!task.worldPos.equals(verifyTarget)) verifyRetries = 0;
+        verifyTarget = task.worldPos;
+        verifyPos = task.worldPos;
+        verifyState = task.state;
+        verifyTaskIndex = layerIndex;
+        verifyTicks = 10;
         layerIndex++;
         pendingPlace = false;
         pendingSlot = -1;
         pendingHit = null;
         pendingSneak = false;
-        placeCooldown = placeDelay.get();
+        pendingTarget = null;
+        // Jittered + TPS-scaled: a constant N-tick place cadence is a printer signature.
+        placeCooldown = com.autism.seedcracker.util.Humanizer.delay(Math.max(1, placeDelay.get()));
     }
 
-    /** Vanilla-ish reach: a bit more for targets above the head (you can reach up further). */
-    private double reachFor(BlockPos pos) {
-        Minecraft mc = Minecraft.getInstance();
-        if (mc.player != null && pos.getY() > mc.player.getBlockY() + 1) return MAX_REACH + 1.5;
-        return MAX_REACH;
+    /**
+     * Same block type counts as placed. Palettes load as default states and the click decides facing/axis/half,
+     * so an exact state compare never matched a stair, log or slab: the layer check kept failing and, with
+     * "Mine out wrong blocks" on, the builder dug out its own correct block and placed it again forever.
+     */
+    private static boolean matches(BlockState cur, BlockState want) {
+        return cur.is(want.getBlock());
     }
+
+    private double reachFor(BlockPos pos) { return MAX_REACH; }
 
     private void rebuildLayerTasks() {
         layerTasks.clear();
@@ -402,6 +739,8 @@ public final class SchematicBuilderModule extends Module {
         pendingSlot = -1;
         pendingHit = null;
         pendingSneak = false;
+        pendingTarget = null;
+        if (!loaded || origin == null) return;
         int rot = rotationSteps.get();
         for (Map.Entry<BlockPos, BlockState> e : schematic.entrySet()) {
             BlockPos rel = e.getKey();
@@ -430,18 +769,6 @@ public final class SchematicBuilderModule extends Module {
             if (isSolid(mc, n)) return faceCenterHit(n, d.getOpposite());
         }
 
-        // Fallback (Water #3): an AIR neighbour with a solid block BEHIND it lets us bridge
-        // outward/upward when there's no directly-adjacent solid face.
-        for (Direction d : Direction.values()) {
-            BlockPos n = pos.relative(d);
-            BlockState ns = mc.level.getBlockState(n);
-            if (ns.isAir() || ns.canBeReplaced()) {
-                BlockPos behind = n.relative(d);
-                if (isSolid(mc, behind)) {
-                    return faceCenterHit(n, d.getOpposite());
-                }
-            }
-        }
         return null;
     }
 
@@ -459,6 +786,19 @@ public final class SchematicBuilderModule extends Module {
             support.getY() + 0.5 + face.getStepY() * 0.5,
             support.getZ() + 0.5 + face.getStepZ() * 0.5);
         return new BlockHitResult(point, face, support, false);
+    }
+
+    private static boolean validPlacementHit(Minecraft mc, BlockHitResult hit, BlockPos target) {
+        if (mc.gui.screen() != null || mc.player == null || mc.level == null
+                || !hit.getBlockPos().relative(hit.getDirection()).equals(target)
+                || mc.player.getEyePosition().distanceTo(hit.getLocation()) > MAX_REACH
+                || !isSolid(mc, hit.getBlockPos())) return false;
+        Vec3 eye = mc.player.getEyePosition();
+        Vec3 end = hit.getLocation().add(hit.getLocation().subtract(eye).normalize().scale(0.001));
+        BlockHitResult ray = mc.level.clip(new net.minecraft.world.level.ClipContext(eye, end,
+            net.minecraft.world.level.ClipContext.Block.OUTLINE, net.minecraft.world.level.ClipContext.Fluid.NONE, mc.player));
+        return ray.getType() == net.minecraft.world.phys.HitResult.Type.BLOCK && ray.getBlockPos().equals(hit.getBlockPos())
+            && ray.getDirection() == hit.getDirection();
     }
 
     private static boolean isSolid(Minecraft mc, BlockPos pos) {
@@ -484,14 +824,21 @@ public final class SchematicBuilderModule extends Module {
     }
 
     private void walkToward(Minecraft mc, BlockPos target) {
+        ownsWalk = true;
         if (legitWalk.get()) {
             // nyx HumanMotionSim: drive the REAL movement keys toward the target with a turn-gate,
             // ledge/fall-hazard stop and mine-through detection - zero velocity/packet manipulation.
             Vec3 t = Vec3.atCenterOf(target);
             var result = com.autism.seedcracker.util.tunnel.HumanMotionSim.step(t, MAX_REACH, 30.0, 4, 1);
+            ownedHumanLook = com.autism.seedcracker.util.tunnel.LookRotation.getRequested();
             if (result == com.autism.seedcracker.util.tunnel.HumanMotionSim.StepResult.MINE_THROUGH) {
                 BlockPos mine = com.autism.seedcracker.util.tunnel.HumanMotionSim.getMineTarget();
-                if (mine != null) digOut(mc, mine, mc.level.getBlockState(mine));
+                if (clearBlocks.get() && mine != null) digOut(mc, mine, mc.level.getBlockState(mine));
+                else pauseBuild("Walking blocked. Clear the path manually, then Start (mining is off).");
+            } else if (result == com.autism.seedcracker.util.tunnel.HumanMotionSim.StepResult.EDGE_STOP
+                    || result == com.autism.seedcracker.util.tunnel.HumanMotionSim.StepResult.FALL_HAZARD
+                    || result == com.autism.seedcracker.util.tunnel.HumanMotionSim.StepResult.BLOCKED) {
+                pauseBuild("Unsafe / blocked walking route. Move to a safe position, then Start.");
             }
             return;
         }
@@ -499,16 +846,25 @@ public final class SchematicBuilderModule extends Module {
         double dz = (target.getZ() + 0.5) - mc.player.getZ();
         float yaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
         float[] rot = look.update(yaw, 0f);
-        mc.player.setYRot(rot[0]);
+        com.autism.seedcracker.motion.RotationEngine.write(id(), com.autism.seedcracker.motion.RotationEngine.PRIORITY_MOVE, rot[0], mc.player.getXRot());
         mc.options.keyUp.setDown(true);
         if (mc.player.horizontalCollision && mc.player.onGround()) mc.options.keyJump.setDown(true);
         else mc.options.keyJump.setDown(false);
     }
 
-    private static void stopWalk(Minecraft mc) {
-        mc.options.keyUp.setDown(false);
-        mc.options.keyJump.setDown(false);
+    private void stopWalk(Minecraft mc) {
+        if (!ownsWalk) return;
+        ownsWalk = false;
         com.autism.seedcracker.util.tunnel.HumanMotionSim.releaseAll();
+        if (ownedHumanLook != null && ownedHumanLook == com.autism.seedcracker.util.tunnel.LookRotation.getRequested()) {
+            com.autism.seedcracker.util.tunnel.LookRotation.clear();
+        }
+        ownedHumanLook = null;
+        if (mc.options != null) {
+            mc.options.keyUp.setDown(physicalKey(mc, mc.options.keyUp));
+            mc.options.keyJump.setDown(physicalKey(mc, mc.options.keyJump));
+            mc.options.keySprint.setDown(physicalKey(mc, mc.options.keySprint));
+        }
     }
 
     /**
@@ -517,15 +873,20 @@ public final class SchematicBuilderModule extends Module {
      * crosshair block (real reported face). Returns true while a dig is actively in progress.
      */
     private boolean digOut(Minecraft mc, BlockPos pos, BlockState state) {
+        if (!clearBlocks.get() || state.is(Blocks.BEDROCK)) {
+            pauseBuild("Mining not permitted at " + pos.toShortString() + ". Clear a safe path manually.");
+            return false;
+        }
         Vec3 eye = mc.player.getEyePosition();
         double dist = eye.distanceTo(Vec3.atCenterOf(pos));
         if (dist > MAX_REACH) {
+            releaseAttack(mc);
             if (pathfind.get()) walkPath(mc, pos);
             else walkToward(mc, pos);
             return true;
         }
         stopWalk(mc);
-        if (!mc.player.onGround()) return true; // never dig airborne (Grim)
+        if (!mc.player.onGround()) { releaseAttack(mc); return true; }
         if (autoTool.get()) selectBestTool(mc, state);
         // Ease onto the block with the human-mouse engine so the crosshair lands on it. Cooldown-
         // scaled (Wocky SpookyTime): the aim slows as attack-strength charges, like a real player
@@ -538,19 +899,26 @@ public final class SchematicBuilderModule extends Module {
         float[] rot = look.update(
             mc.player.getYRot() + (yaw - mc.player.getYRot()) * scale,
             mc.player.getXRot() + (pitch - mc.player.getXRot()) * scale);
-        com.autism.seedcracker.util.tunnel.SilentRotation.clear();
-        mc.player.setYRot(rot[0]);
-        mc.player.setXRot(net.minecraft.util.Mth.clamp(rot[1], -90f, 90f));
-        // Break whatever solid block the crosshair ray actually reports (real face).
+        if (!com.autism.seedcracker.motion.RotationEngine.write(id(), com.autism.seedcracker.motion.RotationEngine.PRIORITY_INTERACT, rot[0], rot[1])) {
+            releaseAttack(mc);
+            return true;
+        }
+        if (!look.isRotationsDone()) { releaseAttack(mc); return true; }
+        // Only the requested block may be mined, never a different block occluding it.
         if (mc.hitResult instanceof BlockHitResult bhr
             && mc.hitResult.getType() == net.minecraft.world.phys.HitResult.Type.BLOCK) {
             BlockPos hitPos = bhr.getBlockPos();
-            if (!mc.level.getBlockState(hitPos).isAir() && mc.gameMode != null) {
+            if (hitPos.equals(pos) && !mc.level.getBlockState(hitPos).isAir() && mc.gameMode != null
+                    && eye.distanceTo(bhr.getLocation()) <= MAX_REACH) {
+                // Key only: vanilla's continueAttack already drives continueDestroyBlock + swing
+                // while the key is down; calling it here too doubled break progress per tick
+                // (fast-break flag risk, A15).
                 mc.options.keyAttack.setDown(true);
-                mc.gameMode.continueDestroyBlock(hitPos, bhr.getDirection());
-                com.autism.seedcracker.compat.McCompat.swing(mc.player, InteractionHand.MAIN_HAND);
+                ownsAttack = true;
+                return true;
             }
         }
+        releaseAttack(mc);
         return true;
     }
 
@@ -594,34 +962,64 @@ public final class SchematicBuilderModule extends Module {
         walkToward(mc, target);
     }
 
-    /** Place a temporary scaffold block under the next step if there's a gap. */
+    /** Place a temporary scaffold block under the next step if there's a gap. Aims with the
+     * eased engine at the REAL hit point and only places once converged (no snap-place). */
     private boolean tryScaffoldStep(Minecraft mc) {
         BlockPos feet = mc.player.blockPosition();
         BlockPos ahead = feet.relative(mc.player.getDirection());
         BlockPos floor = ahead.below();
         if (isSolid(mc, floor)) return false; // already a floor
         if (schematic.containsKey(toRel(floor))) return false; // don't overwrite schematic spots
+        if (!mc.player.onGround()) return true; // airborne: wait, don't scaffold mid-jump (Grim)
         int slot = findScaffoldSlot(mc);
         if (slot < 0) return false;
         // place on the side of an adjacent solid block
         BlockHitResult hit = findPlacementHit(mc, floor);
         if (hit == null) return false;
-        com.autism.seedcracker.util.InvSync.select(mc, slot);
-        float[] rot = look.update(
-            (float) Math.toDegrees(Math.atan2(-(hit.getLocation().x - mc.player.getX()), hit.getLocation().z - mc.player.getZ())),
-            40f);
-        mc.player.setYRot(rot[0]);
-        mc.player.setXRot(net.minecraft.util.Mth.clamp(rot[1], -90f, 90f));
-        if (mc.gameMode != null) {
+        stopWalk(mc);
+        if (pendingSlot != slot || !floor.equals(pendingTarget)) {
+            com.autism.seedcracker.util.InvSync.select(mc, slot);
+            pendingSlot = slot;
+            pendingTarget = floor;
+            return true;
+        }
+        Vec3 eye = mc.player.getEyePosition();
+        Vec3 tgt = hit.getLocation();
+        double dx = tgt.x - eye.x, dy = tgt.y - eye.y, dz = tgt.z - eye.z;
+        float yaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
+        float pitch = (float) -Math.toDegrees(Math.atan2(dy, Math.hypot(dx, dz)));
+        float[] rot = look.update(yaw, pitch);
+        if (!com.autism.seedcracker.motion.RotationEngine.write(id(), com.autism.seedcracker.motion.RotationEngine.PRIORITY_INTERACT, rot[0], rot[1])) return true;
+        // Keep easing across ticks until converged; return true = "busy scaffolding, don't walk".
+        if (!look.isRotationsDone()) return true;
+        if (mc.gameMode == null || !validPlacementHit(mc, hit, floor)) {
+            pauseBuild("Scaffold face is not safely reachable. Add support manually, then Start.");
+            return true;
+        }
+        if (!(mc.player.getInventory().getItem(slot).getItem() instanceof net.minecraft.world.item.BlockItem scaffoldItem)) return false;
+        BlockState scaffoldState = scaffoldItem.getBlock().defaultBlockState();
+        boolean sneak = isContainer(mc, hit.getBlockPos());
+        boolean wasSneaking = mc.options.keyShift.isDown();
+        try {
+            if (sneak) mc.options.keyShift.setDown(true);
             mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, hit);
             com.autism.seedcracker.compat.McCompat.swing(mc.player, InteractionHand.MAIN_HAND);
+        } finally {
+            if (sneak) mc.options.keyShift.setDown(wasSneaking);
         }
-        tempBlocks.add(floor);
+        if (!floor.equals(verifyTarget)) verifyRetries = 0;
+        verifyTarget = verifyPos = floor;
+        verifyState = scaffoldState;
+        verifyTaskIndex = layerIndex;
+        verifyTicks = 10;
+        placeCooldown = com.autism.seedcracker.util.Humanizer.delay(Math.max(1, placeDelay.get()));
+        pendingSlot = -1;
+        pendingTarget = null;
         return true;
     }
 
     private BlockPos toRel(BlockPos worldPos) {
-        return origin == null ? worldPos : worldPos.subtract(origin);
+        return origin == null ? worldPos : rotatePos(worldPos.subtract(origin), -rotationSteps.get());
     }
 
     private static int findScaffoldSlot(Minecraft mc) {
@@ -688,39 +1086,62 @@ public final class SchematicBuilderModule extends Module {
     // ---- chest restock (optional) ----
 
     private void tickRestock(Minecraft mc) {
-        // Release any held movement keys before touching the chest (no movement during a container).
-        com.autism.seedcracker.util.tunnel.HumanMotionSim.releaseAll();
         stopWalk(mc);
+        if (--restockTimeout <= 0) { pauseBuild("Restock timed out. Put materials in the hotbar and Start again."); return; }
+        if (neededItem == null || mc.gameMode == null) { pauseBuild("Restock unavailable. Put materials in the hotbar."); return; }
         if (restockDelay > 0) { restockDelay--; return; }
+        if (findHotbarItem(mc, neededItem) < 0 && inventoryHas(mc, neededItem)) {
+            pauseBuild("Materials are in your inventory. Move them into the hotbar, then Start.");
+            return;
+        }
         switch (restockState) {
             case SEARCHING -> {
                 if (findHotbarItem(mc, neededItem) >= 0) { resetRestock(); return; }
                 restockChest = findNearestChest(mc, neededItem);
                 if (restockChest == null) {
-                    msg(mc, "No chest with " + new ItemStack(neededItem).getHoverName().getString() + " nearby - skipping it.");
-                    resetRestock();
-                    layerIndex++; // skip the block we couldn't get
+                    pauseBuild("No reachable restock chest. Put " + new ItemStack(neededItem).getHoverName().getString() + " in the hotbar, then Start.");
                     return;
                 }
                 restockState = RestockState.OPENING;
+                restockRequested = false;
                 restockDelay = chestDelay.get();
             }
             case OPENING -> {
                 if (mc.gui.screen() instanceof net.minecraft.client.gui.screens.inventory.AbstractContainerScreen<?>) {
+                    if (mc.player.containerMenu == mc.player.inventoryMenu) {
+                        pauseBuild("Inventory opened manually. Close it, then Start.");
+                        return;
+                    }
+                    ownedContainer = mc.player.containerMenu.containerId;
                     restockState = RestockState.TAKING;
-                    restockDelay = chestDelay.get();
+                    restockDelay = com.autism.seedcracker.util.Humanizer.delay(chestDelay.get());
                     return;
                 }
-                // face + open the chest
-                float[] rot = look.update(
-                    (float) Math.toDegrees(Math.atan2(-(restockChest.getX() + 0.5 - mc.player.getX()), restockChest.getZ() + 0.5 - mc.player.getZ())), 10f);
-                mc.player.setYRot(rot[0]);
-                mc.player.setXRot(net.minecraft.util.Mth.clamp(rot[1], -90f, 90f));
-                if (mc.gameMode != null) {
-                    mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND,
-                        new BlockHitResult(Vec3.atCenterOf(restockChest), Direction.UP, restockChest, false));
+                if (restockRequested) return;
+                // Face the chest with the eased engine at a raycast-visible point; only use once
+                // converged (fabricated centre-hit + instant aim was a rotation-checker flag).
+                Vec3 visible = com.autism.seedcracker.util.tunnel.LegitHitPoint.find(
+                    mc, restockChest, Direction.UP, MAX_REACH);
+                if (visible == null || mc.player.getEyePosition().distanceTo(visible) > MAX_REACH) {
+                    searchedChests.add(restockChest);
+                    restockState = RestockState.SEARCHING;
+                    return;
                 }
-                restockDelay = chestDelay.get();
+                BlockHitResult chestHit = new BlockHitResult(visible, Direction.UP, restockChest, false);
+                Vec3 eye = mc.player.getEyePosition();
+                Vec3 tgt = chestHit.getLocation();
+                double dx = tgt.x - eye.x, dy = tgt.y - eye.y, dz = tgt.z - eye.z;
+                float yaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
+                float pitch = (float) -Math.toDegrees(Math.atan2(dy, Math.hypot(dx, dz)));
+                float[] rot = look.update(yaw, pitch);
+                if (!com.autism.seedcracker.motion.RotationEngine.write(id(), com.autism.seedcracker.motion.RotationEngine.PRIORITY_INTERACT, rot[0], rot[1])) return;
+                if (!look.isRotationsDone()) return; // keep easing next tick
+                if (mc.gameMode != null) {
+                    mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, chestHit);
+                    com.autism.seedcracker.compat.McCompat.swing(mc.player, InteractionHand.MAIN_HAND);
+                    restockRequested = true;
+                }
+                restockDelay = com.autism.seedcracker.util.Humanizer.delay(chestDelay.get());
             }
             case TAKING -> {
                 if (!(mc.gui.screen() instanceof net.minecraft.client.gui.screens.inventory.AbstractContainerScreen<?>)) {
@@ -728,6 +1149,10 @@ public final class SchematicBuilderModule extends Module {
                     return;
                 }
                 var handler = mc.player.containerMenu;
+                if (handler.containerId != ownedContainer || handler == mc.player.inventoryMenu) {
+                    pauseBuild("Container changed. Put materials in the hotbar, then Start.");
+                    return;
+                }
                 int containerSlots = handler.slots.size() - 36;
                 boolean took = false;
                 for (int i = 0; i < containerSlots; i++) {
@@ -756,31 +1181,44 @@ public final class SchematicBuilderModule extends Module {
     }
 
     private void resetRestock() {
+        closeScreen(Minecraft.getInstance());
         restockState = RestockState.NONE;
         restockChest = null;
         neededItem = null;
-        restockDelay = 0;
+        restockDelay = restockTimeout = 0;
+        restockRequested = false;
     }
 
-    private static void closeScreen(Minecraft mc) {
-        if (mc.gui.screen() instanceof net.minecraft.client.gui.screens.inventory.AbstractContainerScreen<?>) {
+    private void closeScreen(Minecraft mc) {
+        if (ownedContainer >= 0 && mc.player != null && mc.player.containerMenu.containerId == ownedContainer) {
             mc.player.closeContainer();
+            com.autism.seedcracker.util.ContainerMutex.notifyContainerAction();
         }
+        ownedContainer = -1;
     }
 
     private BlockPos findNearestChest(Minecraft mc, Item item) {
         BlockPos pp = mc.player.blockPosition();
-        int r = chestRange.get();
+        int r = Math.min(chestRange.get(), (int) Math.ceil(MAX_REACH));
         BlockPos nearest = null;
         double nd = Double.MAX_VALUE;
         for (int x = -r; x <= r; x++) for (int y = -r; y <= r; y++) for (int z = -r; z <= r; z++) {
             BlockPos p = pp.offset(x, y, z);
-            if (searchedChests.contains(p)) continue;
+            if (searchedChests.contains(p) || !mc.level.hasChunkAt(p)
+                    || mc.player.getEyePosition().distanceTo(Vec3.atCenterOf(p)) > MAX_REACH) continue;
             if (!(mc.level.getBlockEntity(p) instanceof net.minecraft.world.level.block.entity.RandomizableContainerBlockEntity)) continue;
             double d = pp.distSqr(p);
             if (d < nd) { nd = d; nearest = p; }
         }
         return nearest;
+    }
+
+    private static boolean inventoryHas(Minecraft mc, Item item) {
+        for (int i = 0; i < 36; i++) {
+            ItemStack stack = mc.player.getInventory().getItem(i);
+            if (!stack.isEmpty() && stack.is(item)) return true;
+        }
+        return false;
     }
 
     private static int findHotbarItem(Minecraft mc, Item item) {
@@ -791,14 +1229,7 @@ public final class SchematicBuilderModule extends Module {
         return -1;
     }
 
-    private static BlockPos rotatePos(BlockPos p, int rot) {
-        return switch (rot) {
-            case 1 -> new BlockPos(-p.getZ(), p.getY(), p.getX());
-            case 2 -> new BlockPos(-p.getX(), p.getY(), -p.getZ());
-            case 3 -> new BlockPos(p.getZ(), p.getY(), -p.getX());
-            default -> p;
-        };
-    }
+    private static BlockPos rotatePos(BlockPos p, int rot) { return SchematicLoader.rotate(p, rot); }
 
     // ---- ghost render ----
     private void renderGhost(Minecraft mc) {
@@ -807,12 +1238,14 @@ public final class SchematicBuilderModule extends Module {
         List<AABB> missedBoxes = new ArrayList<>();
         List<AABB> futureBoxes = new ArrayList<>();
         int rot = rotationSteps.get();
-        for (Map.Entry<BlockPos, BlockState> e : schematic.entrySet()) {
+        int count = 0;
+        for (Map.Entry<BlockPos, BlockState> e : entries) {
             BlockPos worldPos = origin.offset(rotatePos(e.getKey(), rot));
-            if (mc.player.distanceToSqr(Vec3.atCenterOf(worldPos)) > 200.0 * 200.0) continue;
+            if (mc.player.distanceToSqr(Vec3.atCenterOf(worldPos)) > 200.0 * 200.0 || !mc.level.hasChunkAt(worldPos)) continue;
+            if (++count > GHOST_LIMIT) break;
             AABB box = new AABB(worldPos);
             int y = e.getKey().getY();
-            boolean isPlaced = mc.level.getBlockState(worldPos).equals(e.getValue());
+            boolean isPlaced = matches(mc.level.getBlockState(worldPos), e.getValue());
             if (isPlaced) placedBoxes.add(box);
             else if (y == currentLayer) currentBoxes.add(box);
             else if (y < currentLayer) missedBoxes.add(box);
@@ -822,175 +1255,193 @@ public final class SchematicBuilderModule extends Module {
         feed(id() + ":c", currentBoxes, currentColor.get());
         feed(id() + ":m", missedBoxes, missedColor.get());
         feed(id() + ":f", futureBoxes, futureColor.get());
+        if (preview != null) {
+            BlockPos other = origin.offset(rotatePos(new BlockPos(preview.width() - 1, preview.height() - 1, preview.length() - 1), rot));
+            AABB bounds = new AABB(Math.min(origin.getX(), other.getX()), origin.getY(), Math.min(origin.getZ(), other.getZ()),
+                Math.max(origin.getX(), other.getX()) + 1, other.getY() + 1, Math.max(origin.getZ(), other.getZ()) + 1);
+            feed(id() + ":bounds", List.of(bounds), 0xFFFFFFFF, 0);
+            feed(id() + ":origin", List.of(new AABB(origin)), 0xFFFFCC33);
+        }
     }
 
-    private static void feed(String id, List<AABB> boxes, int argb) {
-        if (boxes.isEmpty()) BlockEspRenderer.clearBox(id);
-        else BlockEspRenderer.feedBoxes(id, boxes, argb);
+    private void clearGhost() {
+        ghostLayers.clear();
+        for (String suffix : List.of(":p", ":c", ":m", ":f", ":bounds", ":origin")) BlockEspRenderer.clearBox(id() + suffix);
     }
 
-    // ---- file loading ----
-    private void loadSchematic(Minecraft mc) {
-        String path = schematicPath.get() == null ? "" : schematicPath.get().trim();
-        if (path.isEmpty()) { msg(mc, "Set a schematic file path first."); return; }
-        File file = new File(path);
-        if (!file.isAbsolute()) file = dihclient.DihClientAddon.FOLDER.toPath().resolve(path).toFile();
-        if (!file.exists()) { msg(mc, "Schematic not found: " + file.getPath()); return; }
+    private void feed(String key, List<AABB> boxes, int argb) { feed(key, boxes, argb, 0x2e); }
+    private void feed(String key, List<AABB> boxes, int argb, int fill) {
+        if (boxes.isEmpty()) { ghostLayers.remove(key); BlockEspRenderer.clearBox(key); }
+        else {
+            ghostLayers.put(key, new GhostLayer(boxes, argb, fill));
+            BlockEspRenderer.feedBoxes(key, boxes, argb, fill);
+        }
+    }
 
+    // ---- transactional background loading and setup summaries ----
+    public Path pathBase() { return dihclient.DihClientAddon.FOLDER.toPath().toAbsolutePath().normalize(); }
+    public List<Path> schematicFolders() {
+        return List.of(Minecraft.getInstance().gameDirectory.toPath().toAbsolutePath().normalize().resolve("schematics"), pathBase().resolve("schematics"));
+    }
+    public String selectedPath() { return schematicPath.get(); }
+    public List<Path> recentSelections() { return SchematicFiles.recent(recentFiles.get()); }
+    public boolean isLoading() { return loading != null; }
+    public boolean hasPreview() { return loaded; }
+    public long previewRevision() { return previewRevision; }
+    public BlockPos buildOrigin() { return origin; }
+    public int rotation() { return rotationSteps.get(); }
+    public boolean isBuilding() { return intent.running(); }
+    public String fileNotice() { return fileNotice; }
+
+    public void loadPreview(String path) {
+        cancelLoad();
+        previewOnly("Loading preview only. Placement and movement are stopped.");
+        setTransient("schematic-path", path == null ? "" : path);
+        Path base = pathBase();
         try {
-            CompoundTag nbt = readNbt(file);
-            if (nbt == null) { msg(mc, "Failed to read NBT."); return; }
-            if (nbt.getCompound("Schematic").isPresent()) nbt = nbt.getCompoundOrEmpty("Schematic");
-
-            schematic.clear();
-            if (nbt.getCompound("Regions").isPresent()) loadLitematica(nbt);
-            else if (nbt.contains("palette") && nbt.contains("blocks")) loadStructure(nbt);
-            else if (nbt.contains("Blocks")) loadLegacy(nbt);
-            else { msg(mc, "Unknown schematic format."); return; }
-
-            if (schematic.isEmpty()) { msg(mc, "Schematic loaded but has no blocks."); return; }
-            normalize();
-            totalBlocks = schematic.size();
-            totalBlocksCount = totalBlocks;
-            loaded = true;
-            placed.clear();
-            currentLayer = minY;
-            rebuildLayerTasks();
-            msg(mc, "Loaded " + totalBlocks + " blocks, layers " + minY + ".." + maxY
-                + ". Set origin, then enable Auto-build.");
-        } catch (Throwable t) {
-            msg(mc, "Load failed: " + t.getMessage());
+            loading = SchematicFiles.submit(() -> SchematicLoader.load(base, path));
+            fileNotice = "Reading local file... (16 MiB file / 64 MiB NBT / 65,536 blocks maximum)";
+        } catch (java.util.concurrent.RejectedExecutionException e) {
+            intent.preview("File queue busy. Retry Load preview after the previous request stops.");
+            fileNotice = "Previous file operation is still stopping. Wait briefly and retry Load preview.";
         }
     }
 
-    private static CompoundTag readNbt(File file) {
-        try { return NbtIo.readCompressed(file.toPath(), NbtAccounter.unlimitedHeap()); }
-        catch (Throwable ignored) {}
-        try (java.io.DataInputStream in = new java.io.DataInputStream(new java.io.FileInputStream(file))) {
-            Tag t = NbtIo.read(in, NbtAccounter.unlimitedHeap());
-            return t instanceof CompoundTag c ? c : null;
-        } catch (Throwable t) { return null; }
+    public void cancelLoad() {
+        if (loading == null) return;
+        loading.cancel(true);
+        loading = null;
+        intent.preview("Load cancelled. Previous preview kept; choose another file or Start explicitly.");
+        fileNotice = "File load cancelled; previous preview kept.";
     }
 
-    private void loadStructure(CompoundTag nbt) {
-        ListTag palette = nbt.getListOrEmpty("palette");
-        BlockState[] states = new BlockState[palette.size()];
-        for (int i = 0; i < palette.size(); i++) {
-            CompoundTag b = palette.getCompoundOrEmpty(i);
-            Block blk = BuiltInRegistries.BLOCK.getValue(net.minecraft.resources.Identifier.parse(b.getStringOr("Name", "minecraft:air")));
-            states[i] = blk != null ? blk.defaultBlockState() : Blocks.AIR.defaultBlockState();
-        }
-        ListTag blocks = nbt.getListOrEmpty("blocks");
-        trackMinMaxReset();
-        for (int i = 0; i < blocks.size(); i++) {
-            CompoundTag b = blocks.getCompoundOrEmpty(i);
-            int[] pos = b.getIntArray("pos").orElse(new int[0]);
-            int si = b.getIntOr("state", -1);
-            if (pos.length < 3 || si < 0 || si >= states.length || states[si].isAir()) continue;
-            put(new BlockPos(pos[0], pos[1], pos[2]), states[si]);
-        }
-    }
-
-    private void loadLitematica(CompoundTag nbt) {
-        trackMinMaxReset();
-        CompoundTag regions = nbt.getCompoundOrEmpty("Regions");
-        for (String name : regions.keySet()) {
-            CompoundTag region = regions.getCompoundOrEmpty(name);
-            java.util.Optional<long[]> bsOpt = region.getLongArray("BlockStates");
-            if (bsOpt.isEmpty() || region.getList("BlockStatePalette").isEmpty()) continue;
-            int[] size = region.getIntArray("Size").orElse(new int[0]);
-            int[] pos = region.getIntArray("Position").orElse(new int[0]);
-            if (size.length < 3) continue;
-            int w = Math.abs(size[0]), h = Math.abs(size[1]), l = Math.abs(size[2]);
-            int ox = pos.length >= 1 ? pos[0] : 0, oy = pos.length >= 2 ? pos[1] : 0, oz = pos.length >= 3 ? pos[2] : 0;
-
-            ListTag palette = region.getListOrEmpty("BlockStatePalette");
-            BlockState[] states = new BlockState[palette.size()];
-            for (int i = 0; i < palette.size(); i++) {
-                CompoundTag b = palette.getCompoundOrEmpty(i);
-                Block blk = BuiltInRegistries.BLOCK.getValue(net.minecraft.resources.Identifier.parse(b.getStringOr("Name", "minecraft:air")));
-                states[i] = blk != null ? blk.defaultBlockState() : Blocks.AIR.defaultBlockState();
-            }
-            long[] data = bsOpt.get();
-            int bitsPer = ceilLog2(Math.max(2, palette.size()));
-            long mask = (1L << bitsPer) - 1;
-            int perLong = 64 / bitsPer;
-            for (int y = 0; y < h; y++) for (int z = 0; z < l; z++) for (int x = 0; x < w; x++) {
-                int idx = (y * l + z) * w + x;
-                int li = idx / perLong;
-                if (li >= data.length) continue;
-                int off = (idx % perLong) * bitsPer;
-                int val = (int) ((data[li] >>> off) & mask);
-                if (val < 0 || val >= states.length || states[val].isAir()) continue;
-                put(new BlockPos(x + ox, y + oy, z + oz), states[val]);
+    public void updateSetup() {
+        observeWorld();
+        if (observedRotation != rotationSteps.get()) invalidateGeometry();
+        if (loading != null && loading.isDone()) {
+            Future<SchematicLoader.Loaded> completed = loading;
+            loading = null;
+            try {
+                SchematicLoader.Loaded next = completed.get();
+                preview = next;
+                schematic = next.blocks();
+                entries = next.entries();
+                requiredMaterials.clear();
+                requiredMaterials.putAll(next.materials());
+                loaded = true;
+                previewRevision++;
+                totalBlocks = schematic.size();
+                minY = 0;
+                maxY = next.height() - 1;
+                invalidateGeometry();
+                intent.preview("Preview loaded. Check origin, orientation and materials, then press Start.");
+                setTransient("schematic-path", next.file().toString());
+                setTransient("recent-files", SchematicFiles.remember(recentFiles.get(), next.file()));
+                fileNotice = "Preview loaded: " + next.file().getFileName() + ". No actions until Start."
+                    + (next.skipped() > 0 ? " WARNING: " + next.skipped() + " unsupported entries omitted." : "");
+                try { persistConfiguredState(); }
+                catch (RuntimeException e) { fileNotice += " Could not save recent files: " + e.getMessage(); }
+            } catch (java.util.concurrent.CancellationException e) {
+                intent.preview("Load cancelled. Choose a file or Start the previous preview explicitly.");
+                fileNotice = "Load cancelled; previous preview kept.";
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                intent.preview("Load interrupted. Retry Load preview.");
+                fileNotice = "Load interrupted; previous preview kept.";
+            } catch (java.util.concurrent.ExecutionException e) {
+                intent.preview("Replacement failed. Previous preview kept. Fix the path or choose another file.");
+                String detail = e.getCause() == null ? e.getMessage() : e.getCause().getMessage();
+                fileNotice = "Load failed; previous preview kept. " + (detail == null ? "Invalid or oversized NBT file." : detail);
             }
         }
+        auditWorld();
     }
 
-    private void loadLegacy(CompoundTag nbt) {
-        trackMinMaxReset();
-        int w = nbt.getShortOr("Width", (short) 0) & 0xFFFF, h = nbt.getShortOr("Height", (short) 0) & 0xFFFF, l = nbt.getShortOr("Length", (short) 0) & 0xFFFF;
-        byte[] blocks = nbt.getByteArray("Blocks").orElse(new byte[0]);
-        byte[] data = nbt.getByteArray("Data").orElse(new byte[0]);
-        for (int y = 0; y < h; y++) for (int z = 0; z < l; z++) for (int x = 0; x < w; x++) {
-            int idx = (y * l + z) * w + x;
-            if (idx >= blocks.length) continue;
-            int id = blocks[idx] & 0xFF;
-            int meta = idx < data.length ? data[idx] & 0xF : 0;
-            Block b = legacyBlock(id, meta);
-            if (b != null && b != Blocks.AIR) put(new BlockPos(x, y, z), b.defaultBlockState());
+    private long lastAuditTick = Long.MIN_VALUE;
+    private void clearAudit() {
+        audited = false;
+        auditIndex = auditMatched = matchedBlocks = auditUnknown = unknownBlocks = 0;
+        lastAuditTick = Long.MIN_VALUE;
+        auditMatches.clear();
+        worldMatches = Map.of();
+    }
+
+    private void auditWorld() {
+        Minecraft mc = Minecraft.getInstance();
+        if (!loaded || origin == null || mc.level == null || entries.isEmpty()) return;
+        long now = mc.level.getGameTime();
+        if (lastAuditTick == now) return;
+        lastAuditTick = now;
+        int end = Math.min(entries.size(), auditIndex + 1024);
+        for (; auditIndex < end; auditIndex++) {
+            var entry = entries.get(auditIndex);
+            BlockPos pos = origin.offset(rotatePos(entry.getKey(), rotationSteps.get()));
+            if (!mc.level.hasChunkAt(pos)) { auditUnknown++; continue; }
+            if (matches(mc.level.getBlockState(pos), entry.getValue())) {
+                auditMatches.merge(entry.getValue().getBlock().asItem(), 1, Integer::sum);
+                auditMatched++;
+            }
+        }
+        if (auditIndex == entries.size()) {
+            worldMatches = Map.copyOf(auditMatches);
+            matchedBlocks = auditMatched;
+            unknownBlocks = auditUnknown;
+            audited = true;
+            auditMatches.clear();
+            auditIndex = auditMatched = auditUnknown = 0;
         }
     }
 
-    private static Block legacyBlock(int id, int meta) {
-        return switch (id) {
-            case 1 -> Blocks.STONE; case 2 -> Blocks.GRASS_BLOCK; case 3 -> Blocks.DIRT;
-            case 4 -> Blocks.COBBLESTONE; case 5 -> Blocks.OAK_PLANKS; case 7 -> Blocks.BEDROCK;
-            case 12 -> Blocks.SAND; case 13 -> Blocks.GRAVEL; case 14 -> Blocks.GOLD_ORE;
-            case 15 -> Blocks.IRON_ORE; case 16 -> Blocks.COAL_ORE; case 20 -> Blocks.GLASS;
-            case 35 -> Blocks.WOOL.pick(net.minecraft.world.item.DyeColor.byId(meta & 0xF)); case 41 -> Blocks.GOLD_BLOCK; case 42 -> Blocks.IRON_BLOCK;
-            case 45 -> Blocks.BRICKS; case 46 -> Blocks.TNT; case 47 -> Blocks.BOOKSHELF;
-            case 48 -> Blocks.MOSSY_COBBLESTONE; case 49 -> Blocks.OBSIDIAN; case 54 -> Blocks.CHEST;
-            case 56 -> Blocks.DIAMOND_ORE; case 57 -> Blocks.DIAMOND_BLOCK; case 80 -> Blocks.SNOW_BLOCK;
-            case 86 -> Blocks.PUMPKIN; case 87 -> Blocks.NETHERRACK; case 89 -> Blocks.GLOWSTONE;
-            case 98 -> Blocks.STONE_BRICKS; case 112 -> Blocks.NETHER_BRICKS; case 121 -> Blocks.END_STONE;
-            case 133 -> Blocks.EMERALD_BLOCK; case 155 -> Blocks.QUARTZ_BLOCK;
-            default -> null;
-        };
-    }
-
-    private void trackMinMaxReset() {
-        minY = Integer.MAX_VALUE; maxY = Integer.MIN_VALUE;
-    }
-
-    private void put(BlockPos pos, BlockState state) {
-        schematic.put(pos, state);
-        minY = Math.min(minY, pos.getY());
-        maxY = Math.max(maxY, pos.getY());
-    }
-
-    private void normalize() {
-        if (schematic.isEmpty()) return;
-        int offX = Integer.MAX_VALUE, offZ = Integer.MAX_VALUE, offY = minY;
-        for (BlockPos p : schematic.keySet()) {
-            offX = Math.min(offX, p.getX());
-            offZ = Math.min(offZ, p.getZ());
+    public record Material(String name, int total, int remaining, int inventory, int hotbar, int missing) {}
+    public List<Material> materialSummary() {
+        Map<Item, Integer> inventory = new HashMap<>(), hotbar = new HashMap<>();
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player != null) for (int i = 0; i < 36; i++) {
+            ItemStack stack = mc.player.getInventory().getItem(i);
+            if (stack.isEmpty()) continue;
+            inventory.merge(stack.getItem(), stack.getCount(), Integer::sum);
+            if (i < 9) hotbar.merge(stack.getItem(), stack.getCount(), Integer::sum);
         }
-        Map<BlockPos, BlockState> moved = new HashMap<>();
-        for (Map.Entry<BlockPos, BlockState> e : schematic.entrySet()) {
-            BlockPos p = e.getKey();
-            moved.put(new BlockPos(p.getX() - offX, p.getY() - offY, p.getZ() - offZ), e.getValue());
+        List<Material> result = new ArrayList<>();
+        for (var entry : requiredMaterials.entrySet()) {
+            int remaining = Math.max(0, entry.getValue() - worldMatches.getOrDefault(entry.getKey(), 0));
+            int have = inventory.getOrDefault(entry.getKey(), 0);
+            result.add(new Material(new ItemStack(entry.getKey()).getHoverName().getString(), entry.getValue(), remaining,
+                have, hotbar.getOrDefault(entry.getKey(), 0), Math.max(0, remaining - have)));
         }
-        schematic.clear();
-        schematic.putAll(moved);
-        maxY -= offY;
-        minY = 0;
+        result.sort(java.util.Comparator.comparing(Material::name));
+        return result;
     }
 
-    private static int ceilLog2(int n) {
-        int bits = 0, v = n - 1;
-        while (v > 0) { bits++; v >>= 1; }
-        return Math.max(1, bits);
+    public String previewName() { return preview == null ? "No schematic loaded" : preview.file().getFileName().toString(); }
+    public String sizeText() {
+        if (preview == null) return "Choose a file first";
+        boolean swap = (rotationSteps.get() & 1) != 0;
+        return (swap ? preview.length() : preview.width()) + " x " + preview.height() + " x "
+            + (swap ? preview.width() : preview.length()) + " blocks (X x Y x Z); " + totalBlocks + " non-air";
+    }
+    public String boundsText() {
+        if (origin == null || preview == null) return "Origin not set in this world";
+        BlockPos other = origin.offset(rotatePos(new BlockPos(preview.width() - 1, preview.height() - 1, preview.length() - 1), rotationSteps.get()));
+        return "Bounds: " + Math.min(origin.getX(), other.getX()) + ", " + origin.getY() + ", " + Math.min(origin.getZ(), other.getZ())
+            + " to " + Math.max(origin.getX(), other.getX()) + ", " + other.getY() + ", " + Math.max(origin.getZ(), other.getZ());
+    }
+    public String progressText() {
+        if (origin == null) return "Set an origin to count blocks already in the world.";
+        if (!audited) return "Checking world: " + auditIndex + "/" + totalBlocks + "; material needs are provisional.";
+        return "In world: " + matchedBlocks + "/" + totalBlocks + " matching block types; " + unknownBlocks + " unloaded. Layer "
+            + Math.min(maxY - minY + 1, currentLayer - minY + 1) + "/" + (maxY - minY + 1);
+    }
+    public String controlsText() {
+        return "Walking: on | Mining: " + (clearBlocks.get() ? "ON" : "off") + " | Scaffold: "
+            + (scaffold.get() ? "ON" : "off") + " | Restock: " + (restock.get() ? "ON" : "off");
+    }
+    public String statusText() { return intent.phase() + ": " + intent.reason(); }
+    public String nextAction() {
+        if (loading != null) return "Wait for Load preview, or cancel it. The previous preview is safe.";
+        if (!loaded) return "Choose a file, browse, paste a path or select Recent; then Load preview.";
+        if (origin == null) return "Join a world and set the origin on step 2.";
+        return intent.running() ? "Open setup / Pause to take control. Manual input also pauses." : "Review materials on step 3, then Start. Closing setup never resumes.";
     }
 
     private static void msg(Minecraft mc, String s) {
@@ -998,7 +1449,9 @@ public final class SchematicBuilderModule extends Module {
     }
 
     @Override public String info() {
-        if (!loaded) return "no schematic";
-        return placed.size() + "/" + totalBlocks + " (layer " + (currentLayer - minY + 1) + "/" + (maxY - minY + 1) + ")";
+        if (loading != null) return "loading preview";
+        if (!loaded) return "preview only - Open setup";
+        return intent.phase().name().toLowerCase(java.util.Locale.ROOT) + " " + matchedBlocks + "/" + totalBlocks
+            + (origin == null ? " - set origin" : " - " + (rotationSteps.get() * 90) + " deg");
     }
 }

@@ -28,7 +28,7 @@ public final class BaseTrackerHud implements HudElementProvider {
 
     @Override public String id() { return SeedcrackerAddon.ID + ":base-tracker"; }
     @Override public String label() { return "Base Tracker"; }
-    @Override public String description() { return "Nearest flagged bases with distance + confidence."; }
+    @Override public String description() { return "Recent nearby finder candidates with source, coordinates, distance and heuristic score—not confirmed bases."; }
 
     @Override public boolean defaultEnabled() { return false; }
     @Override public String defaultAnchor() { return "TOP_LEFT"; }
@@ -37,44 +37,51 @@ public final class BaseTrackerHud implements HudElementProvider {
 
     @Override
     public int width() {
-        return 150;
+        return 230;
     }
 
     @Override
     public int height() {
-        return PAD * 2 + LINE * (MAX_ROWS + 1);
+        return PAD * 2 + LINE * (MAX_ROWS * 2 + 1);
     }
 
     @Override
     public void render(GuiGraphicsExtractor ctx, Font font, int x, int y, float alpha) {
         Minecraft mc = Minecraft.getInstance();
-        if (font == null || mc.player == null) return;
+        if (font == null || mc.player == null || mc.level == null || alpha <= 0) return;
 
-        List<BaseTracker.Entry> bases = BaseTracker.nearest(mc.player.getX(), mc.player.getZ(), MAX_ROWS);
+        List<BaseTracker.Fused> bases = BaseTracker.fusedNearest(mc.player.getX(), mc.player.getZ(), MAX_ROWS);
         int w = width();
         int h = height();
-        ctx.fill(x, y, x + w, y + h, BG);
-        ctx.text(font, "Base Tracker", x + PAD, y + 2, TITLE_COLOR);
+        ctx.fill(x, y, x + w, y + h, opacity(BG, alpha));
+        ctx.text(font, "Finder candidates", x + PAD, y + 2, opacity(TITLE_COLOR, alpha));
+        ctx.text(font, "Score /100", x + w - PAD - font.width("Score /100"), y + 2, opacity(DIM_COLOR, alpha));
 
         if (bases.isEmpty()) {
-            ctx.text(font, "No bases flagged", x + PAD, y + 2 + LINE, DIM_COLOR);
+            ctx.text(font, "No recent candidates", x + PAD, y + 2 + LINE, opacity(DIM_COLOR, alpha));
             return;
         }
 
         int row = 1;
-        for (BaseTracker.Entry e : bases) {
-            double dist = Math.hypot(e.blockX() - mc.player.getX(), e.blockZ() - mc.player.getZ());
-            String line = String.format("%s §7%d,%d §f%.0fm", e.source(), e.blockX(), e.blockZ(), dist);
+        for (BaseTracker.Fused e : bases) {
+            double dist = Math.sqrt(e.distSq());
             int ly = y + 2 + LINE * row;
-            ctx.text(font, line, x + PAD, ly, TEXT_COLOR);
-            // Confidence bar on the right edge.
-            int barW = 30;
+            int barW = 30, bx = x + w - PAD - barW;
+            String source = font.plainSubstrByWidth(e.sources(), w - PAD * 2 - 60);
+            ctx.text(font, source, x + PAD, ly, opacity(TEXT_COLOR, alpha));
+            String score = Integer.toString(e.confidence());
+            ctx.text(font, score, bx - 4 - font.width(score), ly, opacity(DIM_COLOR, alpha));
+            String location = String.format(java.util.Locale.ROOT, "%d, %d   %.0f m", e.blockX(), e.blockZ(), dist);
+            ctx.text(font, font.plainSubstrByWidth(location, w - PAD * 2), x + PAD, ly + LINE, opacity(DIM_COLOR, alpha));
             int filled = Math.round((Math.max(0, Math.min(100, e.confidence())) / 100f) * barW);
-            int bx = x + w - PAD - barW;
-            ctx.fill(bx, ly + 1, bx + barW, ly + 5, 0xFF333340);
-            ctx.fill(bx, ly + 1, bx + filled, ly + 5, confidenceColor(e.confidence()));
-            row++;
+            ctx.fill(bx, ly + 1, bx + barW, ly + 5, opacity(0xFF333340, alpha));
+            ctx.fill(bx, ly + 1, bx + filled, ly + 5, opacity(confidenceColor(e.confidence()), alpha));
+            row += 2;
         }
+    }
+
+    private static int opacity(int color, float alpha) {
+        return Math.round((color >>> 24) * Math.clamp(alpha, 0f, 1f)) << 24 | color & 0xffffff;
     }
 
     private static int confidenceColor(int c) {

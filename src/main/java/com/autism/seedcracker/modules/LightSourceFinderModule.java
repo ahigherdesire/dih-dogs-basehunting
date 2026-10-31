@@ -1,178 +1,140 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Spectre PlayerBypassLightTracker d5a7dd3; packet evidence replaces the old raw glow-volume scanner.
 package com.autism.seedcracker.modules;
 
 import java.util.HashSet;
 import java.util.Set;
-
-import com.autism.seedcracker.SeedcrackerAddon;
-import com.autism.seedcracker.finder.ChunkFlagRenderer;
-import com.autism.seedcracker.finder.FinderSensitivity;
-
 import dihclient.api.module.BoolSetting;
 import dihclient.api.module.ColorSetting;
-import dihclient.api.module.EnumSetting;
 import dihclient.api.module.IntSetting;
 import dihclient.modules.Module;
-import dihclient.util.DihClientMessaging;
-import com.autism.seedcracker.compat.ClientNotify;
+import com.autism.seedcracker.SeedcrackerAddon;
+import com.autism.seedcracker.finder.ChunkFlagRenderer;
+import com.autism.seedcracker.finder.FinderNotify;
+import com.autism.seedcracker.finder.FinderReport;
+import com.autism.seedcracker.finder.BuildEvidenceFilter;
+import com.autism.seedcracker.spectre.activity.PlayerLightTracker;
+import com.autism.seedcracker.spectre.activity.QuantumRules;
 import net.minecraft.client.Minecraft;
-import net.minecraft.core.BlockPos;
+import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.client.multiplayer.ClientPacketListener;
+import net.minecraft.network.protocol.Packet;
+import net.minecraft.network.protocol.game.ClientboundForgetLevelChunkPacket;
+import net.minecraft.network.protocol.game.ClientboundLevelChunkWithLightPacket;
+import net.minecraft.network.protocol.game.ClientboundLightUpdatePacket;
+import net.minecraft.network.protocol.game.ClientboundLightUpdatePacketData;
 import net.minecraft.world.level.ChunkPos;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.chunk.LevelChunk;
-import net.minecraft.world.level.chunk.LevelChunkSection;
 
-/**
- * Light Source Finder (nyx LightFinder / Zelith LightESP port).
- *
- * Bases are lit: players place torches, lanterns and glowstone everywhere they work. This scans
- * loaded chunks for LIGHT-EMITTING blocks below a Y gate and flags chunks with enough of them.
- * Underground light sources are near-exclusively player-placed (natural emitters - lava, glow
- * lichen, amethyst, sea pickles, magma - are filtered), so even a hidden base leaks its torches.
- *
- * Budgeted scan (chunks-per-tick) with per-section all-air skipping, like the other finders.
- */
 public final class LightSourceFinderModule extends Module {
-
-    private final EnumSetting<FinderSensitivity> sensitivity = add(new EnumSetting<>(
-            "sensitivity", "Sensitivity", FinderSensitivity.HIGH, FinderSensitivity.values())
-        .description("HIGH = half the light-count threshold (more finds). LOW = double (only heavily lit areas).")
-        .group("General"));
-    private final IntSetting yLevel = add(new IntSetting("y-level", "Max Y level", 40, -64, 320, 1)
-        .description("Only count light sources at or below this Y (underground light = player light).")
-        .group("General"));
-    private final IntSetting threshold = add(new IntSetting("threshold", "Light count", 2, 1, 64, 1)
-        .description("Player-type light sources in a chunk needed to flag it.")
-        .group("General"));
-    private final IntSetting scanRadius = add(new IntSetting("scan-radius", "Scan radius (chunks)", 6, 1, 12, 1)
-        .description("Chunk bubble around the player scanned.")
-        .group("General"));
-    private final IntSetting chunksPerTick = add(new IntSetting("chunks-per-tick", "Chunks per tick", 2, 1, 16, 1)
-        .description("How many chunks to scan per tick. 1 = smoothest FPS, higher = faster full sweep.")
-        .group("Performance"));
-    private final BoolSetting notify = add(new BoolSetting("notification", "Notification", true)
-        .description("Toast + chat ping on a new lit chunk.")
-        .group("General"));
-    private final ColorSetting color = add(new ColorSetting("color", "Chunk colour", 0x8CFFE080)
-        .description("Colour of lit-chunk markers.")
-        .group("Render"));
-    private final BoolSetting tracer = add(new BoolSetting("tracer", "Tracer", false)
-        .description("Tracer line to each lit chunk.")
-        .group("Render"));
-
-    private final com.autism.seedcracker.finder.ScanCursor scanCursor = new com.autism.seedcracker.finder.ScanCursor();
+    private final IntSetting radius = add(new IntSetting("scan-radius", "Packet range (chunks)", 8, 3, 32, 1).group("Detection"));
+    private final BoolSetting requireBuild = add(new BoolSetting("require-build-evidence", "Require building evidence", true)
+        .description("Require visible non-natural storage or automation clues in the same chunk. May miss hidden bases. Off shows raw clues quietly, without base reports or alerts.").group("Detection"));
+    private final BoolSetting notify = add(new BoolSetting("notification", "Notification", true).group("Alerts").visibleWhen(requireBuild::get));
+    private final ColorSetting color = add(new ColorSetting("color", "Candidate colour", 0x60ffcc00).group("Render"));
+    private final BoolSetting tracer = add(new BoolSetting("tracer", "Tracer", false).group("Render"));
+    private final PlayerLightTracker tracker = new PlayerLightTracker();
+    private final FinderReport reporter = new FinderReport("Light Bypass", 0);
+    private final BuildEvidenceFilter context = new BuildEvidenceFilter();
+    private final Set<ChunkPos> raw = new HashSet<>();
     private final Set<ChunkPos> flagged = new HashSet<>();
     private final Set<ChunkPos> notified = new HashSet<>();
+    private ClientLevel world;
+    private ClientPacketListener connection;
+    private int ticks;
 
     public LightSourceFinderModule() {
-        super(SeedcrackerAddon.ID + ":light-finder", "Light Source Finder",
-            "Flags chunks with player-placed light sources below a Y level - bases are lit.");
+        super(SeedcrackerAddon.ID + ":light-finder", "Light Bypass",
+            "Repeated Spectre skylight clues plus independent building evidence, not lava or natural brightness. Survey above Y 0; no proof of a base.");
     }
 
-    @Override
-    public void onEnable() {
-        flagged.clear();
-        notified.clear();
-        scanCursor.reset();
-    }
-
-    @Override
-    public void onDisable() {
-        flagged.clear();
-        notified.clear();
+    private void clear() {
+        tracker.clear(); context.clear(); raw.clear(); flagged.clear(); notified.clear(); reporter.clear(); ticks = 0;
         ChunkFlagRenderer.clear(id());
     }
+    @Override public void onEnable() { clear(); world = null; connection = null; ChunkFlagRenderer.init(); }
+    @Override public void onDisable() { clear(); world = null; connection = null; }
+    @Override public void onGameLeft() {
+        onDisable();
+        if (com.autism.seedcracker.util.RelogPersistence.shouldDisableOnGameLeft()) setEnabledSilently(false);
+    }
+    @Override protected void onOptionValueChanged(String key) { if ("scan-radius".equals(key) || "require-build-evidence".equals(key)) clear(); }
 
-    @Override
-    public void onGameLeft() { if (com.autism.seedcracker.util.RelogPersistence.shouldDisableOnGameLeft()) setEnabledSilently(false);
+    private boolean ready() {
+        Minecraft mc = Minecraft.getInstance();
+        if (!mc.isSameThread()) return false;
+        if (world != mc.level || connection != mc.getConnection()) {
+            clear(); world = mc.level; connection = mc.getConnection();
+        }
+        return isEnabled() && world != null && mc.player != null && world.dimensionType().hasSkyLight();
     }
 
-    @Override
-    public void tick() {
+    /** Applied-packet TAIL hook: no off-thread world reads or guessed missing light layers. */
+    public void onPacketApplied(Packet<?> packet) {
+        if (!ready()) return;
         Minecraft mc = Minecraft.getInstance();
-        if (mc.level == null || mc.player == null) return;
+        ChunkPos player = mc.player.chunkPosition();
+        tracker.updateEntry(player.x(), player.z(), key -> world.getChunkSource().hasChunk(QuantumRules.x(key), QuantumRules.z(key)));
+        if (packet instanceof ClientboundForgetLevelChunkPacket forgotten) {
+            onChunkUnload(forgotten.pos()); return;
+        }
+        if (packet instanceof net.minecraft.network.protocol.game.ClientboundBlockUpdatePacket block) {
+            context.invalidate(new ChunkPos(block.getPos().getX() >> 4, block.getPos().getZ() >> 4)); return;
+        }
+        if (packet instanceof net.minecraft.network.protocol.game.ClientboundSectionBlocksUpdatePacket section) {
+            section.runUpdates((pos, state) -> context.invalidate(new ChunkPos(pos.getX() >> 4, pos.getZ() >> 4))); return;
+        }
+        int x, z;
+        boolean baseline;
+        ClientboundLightUpdatePacketData data;
+        if (packet instanceof ClientboundLevelChunkWithLightPacket chunk) {
+            x = com.autism.seedcracker.compat.McCompat.chunkX(chunk); z = com.autism.seedcracker.compat.McCompat.chunkZ(chunk); data = com.autism.seedcracker.compat.McCompat.chunkLightData(chunk); baseline = true;
+        } else if (packet instanceof ClientboundLightUpdatePacket light) {
+            x = com.autism.seedcracker.compat.McCompat.chunkX(light); z = com.autism.seedcracker.compat.McCompat.chunkZ(light); data = com.autism.seedcracker.compat.McCompat.chunkLightData(light); baseline = false;
+        } else return;
+        if (data == null || !world.getChunkSource().hasChunk(x, z) || !inRange(x, z, player)) return;
+        if (baseline) context.invalidate(new ChunkPos(x, z));
+        tracker.accept(x, z, world.getSectionsCount(), world.getMinSectionY(), com.autism.seedcracker.compat.McCompat.skyYMask(data),
+            com.autism.seedcracker.compat.McCompat.emptySkyYMask(data), com.autism.seedcracker.compat.McCompat.skyUpdates(data), mc.player.getY() < 0, baseline, System.nanoTime());
+    }
 
-        ChunkPos centre = mc.player.chunkPosition();
-        int radius = scanRadius.get();
-        int need = sensitivity.get().scale(threshold.get());
+    public void onChunkUnload(ChunkPos pos) {
+        if (!ready() || pos == null) return;
+        tracker.forget(pos.pack()); context.invalidate(pos); raw.remove(pos); flagged.remove(pos); notified.remove(pos);
+        reporter.clear(); ChunkFlagRenderer.clear(id());
+    }
 
-        for (LevelChunk chunk : scanCursor.nextBatch(mc, radius, 1500, chunksPerTick.get())) {
-            ChunkPos pos = chunk.getPos();
-            if (countPlayerLights(chunk, yLevel.get(), need) >= need) {
-                flagged.add(pos);
-                if (notified.add(pos)) onNewFlag(pos);
-            } else {
-                flagged.remove(pos);
+    @Override public void tick() {
+        if (!ready()) { context.clear(); raw.clear(); flagged.clear(); reporter.clear(); ChunkFlagRenderer.clear(id()); return; }
+        Minecraft mc = Minecraft.getInstance();
+        ChunkPos player = mc.player.chunkPosition();
+        tracker.updateEntry(player.x(), player.z(), key -> world.getChunkSource().hasChunk(QuantumRules.x(key), QuantumRules.z(key)));
+        if (++ticks % 10 == 0) {
+            tracker.retain(key -> inRange(QuantumRules.x(key), QuantumRules.z(key), player)
+                && world.getChunkSource().hasChunk(QuantumRules.x(key), QuantumRules.z(key)));
+            raw.clear();
+            if (mc.player.getY() >= 0) for (long key : tracker.flagged(System.nanoTime())) {
+                raw.add(new ChunkPos(QuantumRules.x(key), QuantumRules.z(key)));
             }
         }
-
-        int pr = radius + 2;
-        flagged.removeIf(p -> tooFar(p, centre, pr));
-        notified.removeIf(p -> tooFar(p, centre, pr));
+        if (mc.player.getY() < 0) { raw.clear(); notified.clear(); }
+        flagged.clear();
+        flagged.addAll(context.filter(mc, raw, requireBuild.get()));
+        notified.retainAll(raw);
+        for (ChunkPos pos : flagged) if (requireBuild.get() && notify.get() && notified.add(pos)) {
+            FinderNotify.flag("[Light Bypass]", "Repeated light clue with building evidence at X:" + pos.getMinBlockX()
+                + " Z:" + pos.getMinBlockZ() + " (candidate, not base proof)", false);
+        }
         ChunkFlagRenderer.feed(id(), flagged, color.get(), tracer.get());
+        reporter.tick(mc, requireBuild.get() ? flagged : Set.of());
     }
 
-    /** Count player-type light emitters at or below yGate, early-out at {@code enough}. */
-    private int countPlayerLights(LevelChunk chunk, int yGate, int enough) {
-        int count = 0;
-        int minY = chunk.getMinY();
-        int startX = chunk.getPos().getMinBlockX();
-        int startZ = chunk.getPos().getMinBlockZ();
-        BlockPos.MutableBlockPos m = new BlockPos.MutableBlockPos();
-        for (int sy = minY; sy <= yGate; sy += 16) {
-            int sectionIdx = chunk.getSectionIndex(sy);
-            if (sectionIdx < 0 || sectionIdx >= chunk.getSectionsCount()) continue;
-            LevelChunkSection sec = chunk.getSection(sectionIdx);
-            if (sec.hasOnlyAir()) continue;
-            int yLo = Math.max(sy, minY);
-            int yHi = Math.min(sy + 15, yGate);
-            for (int x = 0; x < 16; x++) {
-                for (int z = 0; z < 16; z++) {
-                    for (int y = yLo; y <= yHi; y++) {
-                        m.set(startX + x, y, startZ + z);
-                        BlockState state = chunk.getBlockState(m);
-                        if (state.getLightEmission() <= 0) continue;
-                        if (isNaturalEmitter(state)) continue;
-                        if (++count >= enough) return count;
-                    }
-                }
-            }
-        }
-        return count;
+    private boolean inRange(int x, int z, ChunkPos center) {
+        return Math.abs((long) x - center.x()) <= radius.get() && Math.abs((long) z - center.z()) <= radius.get();
     }
-
-    /** Natural light emitters that generate underground - never evidence of a player. */
-    private static boolean isNaturalEmitter(BlockState s) {
-        return !s.getFluidState().isEmpty() // lava (fluid state catches flowing)
-            || s.is(Blocks.LAVA) || s.is(Blocks.MAGMA_BLOCK)
-            || s.is(Blocks.GLOW_LICHEN) || s.is(Blocks.SEA_PICKLE)
-            || s.is(Blocks.AMETHYST_CLUSTER) || s.is(Blocks.LARGE_AMETHYST_BUD)
-            || s.is(Blocks.MEDIUM_AMETHYST_BUD) || s.is(Blocks.SMALL_AMETHYST_BUD)
-            || s.is(Blocks.BUDDING_AMETHYST) || s.is(Blocks.CAVE_VINES) || s.is(Blocks.CAVE_VINES_PLANT)
-            || s.is(Blocks.BROWN_MUSHROOM) || s.is(Blocks.CRYING_OBSIDIAN)
-            || s.is(Blocks.ENCHANTING_TABLE) // emits weak light but flagged by other finders anyway
-            || s.is(Blocks.REDSTONE_ORE) || s.is(Blocks.DEEPSLATE_REDSTONE_ORE)
-            || s.is(Blocks.GLOWSTONE) && dimensionIsNether(); // natural glowstone in the nether only
-    }
-
-    private static boolean dimensionIsNether() {
-        Minecraft mc = Minecraft.getInstance();
-        return mc.level != null && mc.level.dimension() == net.minecraft.world.level.Level.NETHER;
-    }
-
-    private static boolean tooFar(ChunkPos a, ChunkPos b, int radius) {
-        return Math.abs(a.x() - b.x()) > radius || Math.abs(a.z() - b.z()) > radius;
-    }
-
-    private void onNewFlag(ChunkPos pos) {
-        if (!notify.get()) return;
-        String msg = "Lit chunk at X:" + pos.getMinBlockX() + " Z:" + pos.getMinBlockZ() + " (player lights below Y" + yLevel.get() + ")";
-        ClientNotify.warning(msg);
-        DihClientMessaging.sendPrefixed("§e[LightFinder] §f" + msg);
-    }
-
-    @Override
-    public String info() {
-        return flagged.size() + " lit";
+    @Override public String info() {
+        var player = Minecraft.getInstance().player;
+        if (player != null && player.getY() < 0) return "Survey above Y 0";
+        return (requireBuild.get() ? flagged.size() + " supported / " + raw.size() + " raw clues" : raw.size() + " raw clues (quiet)")
+            + context.coverageSuffix() + reporter.coverageSuffix();
     }
 }

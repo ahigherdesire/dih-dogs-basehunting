@@ -28,6 +28,7 @@ val mcReplacements = mapOf(
     "26.3" to mapOf(
         "net.minecraft.client.renderer.rendertype.DihRenderTypes" to "dihclient.render.mc.DihRenderTypes",
         "RedStoneWireBlock" to "RedstoneWireBlock",
+        "net.minecraft.world.entity.monster.EnderMan" to "net.minecraft.world.entity.monster.Enderman",
         "VanillaRegistries.createLookup()" to "VanillaRegistries.createWorldLookup()",
     ),
 )
@@ -56,24 +57,65 @@ fun preprocess(text: String, mc: String): String {
 }
 
 val preprocessedDir = layout.buildDirectory.dir("preprocessed/${target.minecraft}/java")
+val mc263Sources = file("src/mc263/java")
 val preprocessSources by tasks.registering {
     val src = file("src/main/java")
     inputs.dir(src)
+    if (target.minecraft == "26.3") inputs.files(fileTree(mc263Sources))
     inputs.property("mc", target.minecraft)
     outputs.dir(preprocessedDir)
     doLast {
         val out = preprocessedDir.get().asFile
         out.deleteRecursively()
         src.walkTopDown().filter { it.isFile }.forEach { f ->
-            val dest = out.resolve(f.relativeTo(src))
+            val relative = f.relativeTo(src)
+            // Never compile the 26.2 predictor against guessed 26.3 worldgen APIs.
+            if (target.minecraft == "26.3" && relative.invariantSeparatorsPath.startsWith("com/autism/seedcracker/spectre/chunks/seedscan/")) return@forEach
+            val dest = out.resolve(relative)
             dest.parentFile.mkdirs()
             if (f.extension == "java") dest.writeText(preprocess(f.readText(), target.minecraft)) else f.copyTo(dest)
+        }
+        if (target.minecraft == "26.3" && mc263Sources.exists()) {
+            mc263Sources.walkTopDown().filter { it.isFile }.forEach { f ->
+                val dest = out.resolve(f.relativeTo(mc263Sources))
+                dest.parentFile.mkdirs()
+                if (f.extension == "java") dest.writeText(preprocess(f.readText(), target.minecraft)) else f.copyTo(dest)
+            }
+        }
+    }
+}
+val preprocessedTestsDir = layout.buildDirectory.dir("preprocessed/${target.minecraft}/test-java")
+val mc263Tests = file("src/mc263Test/java")
+val preprocessTests by tasks.registering {
+    val src = file("src/test/java")
+    inputs.dir(src)
+    if (target.minecraft == "26.3") inputs.files(fileTree(mc263Tests))
+    inputs.property("mc", target.minecraft)
+    outputs.dir(preprocessedTestsDir)
+    doLast {
+        val out = preprocessedTestsDir.get().asFile
+        out.deleteRecursively()
+        src.walkTopDown().filter { it.isFile }.forEach { f ->
+            val relative = f.relativeTo(src)
+            if (target.minecraft == "26.3" && relative.invariantSeparatorsPath.startsWith("com/autism/seedcracker/spectre/chunks/seedscan/")) return@forEach
+            val dest = out.resolve(relative)
+            dest.parentFile.mkdirs()
+            if (f.extension == "java") dest.writeText(preprocess(f.readText(), target.minecraft)) else f.copyTo(dest)
+        }
+        if (target.minecraft == "26.3" && mc263Tests.exists()) {
+            mc263Tests.walkTopDown().filter { it.isFile }.forEach { f ->
+                val dest = out.resolve(f.relativeTo(mc263Tests))
+                dest.parentFile.mkdirs()
+                if (f.extension == "java") dest.writeText(preprocess(f.readText(), target.minecraft)) else f.copyTo(dest)
+            }
         }
     }
 }
 if (target.minecraft != "26.2") {
     sourceSets.main { java.setSrcDirs(listOf(preprocessedDir)) }
+    sourceSets.test { java.setSrcDirs(listOf(preprocessedTestsDir)) }
     tasks.named("compileJava") { dependsOn(preprocessSources) }
+    tasks.named("compileTestJava") { dependsOn(preprocessTests) }
 }
 
 base {
@@ -112,6 +154,7 @@ dependencies {
     val dihJar = findProperty("dihJar") as String?
     if (dihJar != null) {
         compileOnly(files(dihJar))
+        testImplementation(files(dihJar))
     } else {
         implementation("com.dihclient:dih:$dihVersion") { isTransitive = false }
     }
@@ -155,13 +198,24 @@ dependencies {
     implementation(latticg)
     include(latticg)
 
-    // Unit tests (pure-logic classes only - no Minecraft bootstrap in tests).
+    // Headless regressions and real-bytecode contracts; no game/client/server launch.
     testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
+    testImplementation("org.ow2.asm:asm-tree:9.9")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
 tasks.test {
     useJUnitPlatform()
+    val testHome = layout.buildDirectory.dir("test-home")
+    val testScratch = layout.buildDirectory.dir("test-scratch")
+    systemProperty("user.home", testHome.get().asFile.absolutePath)
+    systemProperty("java.io.tmpdir", testScratch.get().asFile.absolutePath)
+    systemProperty("java.awt.headless", "true")
+    systemProperty("dogs.minecraft", target.minecraft)
+    doFirst {
+        testHome.get().asFile.mkdirs()
+        testScratch.get().asFile.mkdirs()
+    }
 }
 
 // Turns an exact Minecraft version (e.g. "26.2") into a compatible range ("~26.2") so the addon

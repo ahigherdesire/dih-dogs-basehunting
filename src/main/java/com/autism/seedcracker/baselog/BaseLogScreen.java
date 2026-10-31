@@ -1,252 +1,220 @@
 package com.autism.seedcracker.baselog;
 
-import java.util.ArrayList;
-import java.util.Comparator;
+import java.io.IOException;
 import java.util.List;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.components.ObjectSelectionList;
+import net.minecraft.client.gui.components.Tooltip;
+import net.minecraft.client.gui.screens.ConfirmScreen;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
 
-/**
- * Base Log Browser. Lists every coordinate logged to bases.txt by the RTP stash finder and the
- * Relog Loader. Click an entry to copy its coords; per-row buttons delete an entry. Top bar has
- * a search filter and a sort toggle (newest / nearest). Delete Selected removes the clicked entry.
- */
-public final class BaseLogScreen extends Screen {
+/** Local, keyboard-accessible review of candidate coordinates; no travel or detection actions. */
+public final class BaseLogScreen extends com.autism.seedcracker.gui.AddonScreen {
     private final Screen parent;
-
-    private List<BaseLog.Entry> all = new ArrayList<>();
-    private List<BaseLog.Entry> view = new ArrayList<>();
-
-    private EditBox searchField;
-    private Button sortButton;
-
-    private boolean sortNearest = false;
-    private int selected = -1;     // index into view
-    private int scroll = 0;        // first visible row index
-
-    private int listX;
-    private int listY;
-    private int listW;
-    private int rowH = 22;
-    private int rowsVisible;
+    private BaseLog.Snapshot snapshot;
+    private List<BaseLog.Entry> view = List.of();
+    private BaseLog.Entry selected;
+    private EditBox search, statusField;
+    private double[] sortOrigin;
+    private CandidateList candidates;
+    private Button copyCoords, copyInfo, delete;
+    private String query = "", status = "";
+    private boolean nearest, readFailed;
 
     public BaseLogScreen(Screen parent) {
         super(Component.literal("Base Log Browser"));
         this.parent = parent;
     }
 
-    @Override
-    protected void init() {
+    @Override protected void init() {
         super.init();
-        this.all = BaseLog.readAll();
-
-        int margin = 20;
-        this.listX = margin;
-        this.listY = 84;
-        this.listW = this.width - margin * 2 - 96; // leave room for the side button column
-        this.rowsVisible = Math.max(1, (this.height - this.listY - 30) / this.rowH);
-
-        int sideX = this.listX + this.listW + 8;
-        int sideW = this.width - sideX - margin;
-
-        this.searchField = new EditBox(this.font, this.listX, 40, 220, 20, Component.literal("Search"));
-        this.searchField.setMaxLength(64);
-        this.searchField.setHint(Component.literal("filter (coord / dim / block)"));
-        this.searchField.setResponder(s -> refilter());
-        this.addRenderableWidget(this.searchField);
-
-        this.sortButton = Button.builder(Component.literal(sortLabel()), b -> {
-            sortNearest = !sortNearest;
-            b.setMessage(Component.literal(sortLabel()));
+        if (snapshot == null) load();
+        int contentWidth = screenWidth() - 24;
+        int searchWidth = contentWidth - 188;
+        search = new EditBox(font, 12, 40, searchWidth, 20, Component.literal("Search candidate logs"));
+        search.setMaxLength(128);
+        search.setHint(Component.literal("coords / dim / block / date"));
+        search.setValue(query);
+        search.setTooltip(Tooltip.create(Component.literal("All words must match; case-insensitive. Searches recorded fields only.")));
+        addRenderableWidget(search);
+        addRenderableWidget(button(Component.literal(sortLabel()), button -> {
+            nearest = !nearest;
+            button.setMessage(Component.literal(sortLabel()));
             refilter();
-        }).bounds(this.listX + 228, 40, 130, 20).build();
-        this.addRenderableWidget(this.sortButton);
+        }).bounds(16 + searchWidth, 40, 120, 20).tooltip(Tooltip.create(Component.literal(
+            "Newest = last in file. X/Z near = numerical distance from your current X/Z only.\n"
+                + "World identity was not recorded. This is not a verified same-world distance.\n"
+                + "Without a player, X/Z near falls back to newest."))).build());
+        addRenderableWidget(button(Component.literal("Refresh"), button -> { load(); refilter(); })
+            .bounds(screenWidth() - 72, 40, 60, 20).build());
 
-        this.addRenderableWidget(Button.builder(Component.literal("Refresh"), b -> {
-            this.all = BaseLog.readAll();
-            refilter();
-        }).bounds(this.listX + 362, 40, 70, 20).build());
-
-        // Side action column.
-        int by = this.listY;
-        this.addRenderableWidget(Button.builder(Component.literal("Copy Coords"), b -> copySelected())
-            .bounds(sideX, by, sideW, 20).build());
-        this.addRenderableWidget(Button.builder(Component.literal("Delete Selected"), b -> deleteSelected())
-            .bounds(sideX, by + 26, sideW, 20).build());
-        this.addRenderableWidget(Button.builder(Component.literal("Close"), b -> onClose())
-            .bounds(sideX, this.height - 44, sideW, 20).build());
-
+        candidates = new CandidateList(contentWidth, Math.max(32, screenHeight() - 178), 70);
+        addRenderableWidget(candidates);
+        statusField = new EditBox(font, 12, screenHeight() - 50, contentWidth, 20, Component.literal("Local log status"));
+        statusField.setMaxLength(4096);
+        statusField.setEditable(false);
+        addRenderableWidget(statusField);
+        int actionWidth = (contentWidth - 12) / 4;
+        int y = screenHeight() - 24;
+        copyCoords = addRenderableWidget(button(Component.literal("Copy XYZ"), button -> copy(false))
+            .bounds(12, y, actionWidth, 20).build());
+        copyInfo = addRenderableWidget(button(Component.literal("Copy Info"), button -> copy(true))
+            .bounds(16 + actionWidth, y, actionWidth, 20).build());
+        delete = addRenderableWidget(button(Component.literal("Delete..."), button -> confirmDelete())
+            .bounds(20 + actionWidth * 2, y, actionWidth, 20).build());
+        addRenderableWidget(button(Component.literal("Close"), button -> onClose())
+            .bounds(24 + actionWidth * 3, y, actionWidth, 20).build());
+        search.setResponder(value -> { query = value; refilter(); });
         refilter();
     }
 
-    private String sortLabel() {
-        return sortNearest ? "Sort: Nearest" : "Sort: Newest";
+    private String sortLabel() { return nearest ? "Sort: X/Z near" : "Sort: Newest"; }
+
+    private void load() {
+        try {
+            BaseLog.Snapshot fresh = BaseLog.read(BaseLog.file());
+            // A refresh must never silently select a different duplicate or shifted record.
+            if (snapshot == null || !fresh.text().equals(snapshot.text())) {
+                snapshot = fresh;
+                selected = null;
+            }
+            readFailed = false;
+            status = "Read " + fresh.entries().size() + " candidate(s)."
+                + (fresh.skipped() == 0 ? "" : " " + fresh.skipped() + " unreadable line(s) kept in file.");
+        } catch (IOException | SecurityException exception) {
+            readFailed = true;
+            status = "Read failed: " + exception.getMessage();
+            if (snapshot == null) snapshot = new BaseLog.Snapshot("", List.of(), 0);
+        }
     }
 
     private void refilter() {
-        String q = this.searchField == null ? "" : this.searchField.getValue().trim().toLowerCase();
-        List<BaseLog.Entry> out = new ArrayList<>();
-        for (BaseLog.Entry e : this.all) {
-            if (!q.isEmpty()) {
-                String hay = (e.coord() + " " + e.dimension + " " + e.blockId + " " + e.timestamp).toLowerCase();
-                if (!hay.contains(q)) continue;
-            }
-            out.add(e);
-        }
-        if (sortNearest) {
-            double[] p = BaseLog.playerPos();
-            if (p != null) {
-                out.sort(Comparator.comparingDouble(e -> e.distanceTo(p[0], p[1])));
-            }
-        } else {
-            // Newest first: file is append-only, so reverse file order.
-            java.util.Collections.reverse(out);
-        }
-        this.view = out;
-        if (this.selected >= this.view.size()) this.selected = -1;
-        clampScroll();
+        if (candidates == null) return;
+        sortOrigin = nearest ? BaseLog.playerPos() : null;
+        view = BaseLog.filter(snapshot.entries(), query, nearest, sortOrigin);
+        selected = BaseLog.retainSelection(selected, view);
+        candidates.replaceRows();
+        updateActions();
     }
 
-    private void clampScroll() {
-        int maxScroll = Math.max(0, this.view.size() - this.rowsVisible);
-        if (this.scroll > maxScroll) this.scroll = maxScroll;
-        if (this.scroll < 0) this.scroll = 0;
+    private void updateActions() {
+        if (copyCoords == null) return;
+        copyCoords.active = copyInfo.active = selected != null;
+        delete.active = selected != null && !readFailed;
+        copyInfo.setTooltip(selected == null ? null : Tooltip.create(Component.literal(selected.details())));
+        delete.setTooltip(Tooltip.create(Component.literal("Confirm deletion of one occurrence only. Keeps an original-file backup.")));
     }
 
-    private void copySelected() {
-        if (this.selected < 0 || this.selected >= this.view.size()) return;
-        BaseLog.Entry e = this.view.get(this.selected);
-        Minecraft.getInstance().keyboardHandler.setClipboard(e.coord());
-        sendMessage("§aCopied coords: §f" + e.coord());
+    private void copy(boolean details) {
+        if (selected == null) return;
+        Minecraft.getInstance().keyboardHandler.setClipboard(details ? selected.details() : selected.coord());
+        String message = details ? "Copied recorded candidate details (unverified)." : "Copied exact XYZ: " + selected.coord();
+        if (readFailed) toast(message, 0xffc3d6eb);
+        else status = message;
     }
 
-    private void deleteSelected() {
-        if (this.selected < 0 || this.selected >= this.view.size()) return;
-        BaseLog.Entry e = this.view.get(this.selected);
-        int removed = BaseLog.remove(java.util.List.of(e));
-        this.all = BaseLog.readAll();
-        this.selected = -1;
-        refilter();
-        sendMessage(removed > 0 ? "§aDeleted base: §f" + e.coord() : "§cNothing deleted.");
-    }
-
-    private void deleteEntry(BaseLog.Entry e) {
-        BaseLog.remove(java.util.List.of(e));
-        this.all = BaseLog.readAll();
-        this.selected = -1;
-        refilter();
-    }
-
-    @Override
-    public void extractRenderState(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float delta) {
-        super.extractRenderState(ctx, mouseX, mouseY, delta);
-        ctx.centeredText(this.font, Component.literal("Base Log Browser"), this.width / 2, 12, 0xFFFFFFFF);
-        ctx.text(this.font, Component.literal(this.view.size() + " base(s)"), this.listX, 24, 0xFFA0A0A0, false);
-
-        double[] p = BaseLog.playerPos();
-
-        // Header row
-        int hy = this.listY - 14;
-        ctx.text(this.font, Component.literal("Coords"), this.listX + 6, hy, 0xFF808080, false);
-        ctx.text(this.font, Component.literal("Dim"), this.listX + 150, hy, 0xFF808080, false);
-        ctx.text(this.font, Component.literal("Block"), this.listX + 230, hy, 0xFF808080, false);
-        ctx.text(this.font, Component.literal("Dist"), this.listX + 330, hy, 0xFF808080, false);
-        ctx.text(this.font, Component.literal("Logged"), this.listX + 410, hy, 0xFF808080, false);
-
-        for (int i = 0; i < this.rowsVisible; i++) {
-            int idx = this.scroll + i;
-            if (idx >= this.view.size()) break;
-            BaseLog.Entry e = this.view.get(idx);
-            int ry = this.listY + i * this.rowH;
-
-            boolean hovered = mouseX >= this.listX && mouseX < this.listX + this.listW
-                && mouseY >= ry && mouseY < ry + this.rowH;
-            int bg = idx == this.selected ? 0xFF35486B : (hovered ? 0xFF26262F : 0xFF1A1A24);
-            ctx.fill(this.listX, ry, this.listX + this.listW, ry + this.rowH - 2, bg);
-
-            int textColor = idx == this.selected ? 0xFFFFFFFF : 0xFFDDDDDD;
-            ctx.text(this.font, Component.literal(e.coord()), this.listX + 6, ry + 6, textColor, false);
-            ctx.text(this.font, Component.literal(BaseLog.shortDim(e.dimension)), this.listX + 150, ry + 6, 0xFF9AD1FF, false);
-            ctx.text(this.font, Component.literal(BaseLog.shortBlock(e.blockId)), this.listX + 230, ry + 6, 0xFFB9F6CA, false);
-            String dist = p != null ? BaseLog.formatDistance(e.distanceTo(p[0], p[1])) : "-";
-            ctx.text(this.font, Component.literal(dist), this.listX + 330, ry + 6, 0xFFFFE082, false);
-            ctx.text(this.font, Component.literal(e.timestamp), this.listX + 410, ry + 6, 0xFF909090, false);
-
-            // Per-row delete "x" on the far right of the row.
-            int delX = this.listX + this.listW - 18;
-            boolean delHover = mouseX >= delX - 2 && mouseX < delX + 12 && mouseY >= ry && mouseY < ry + this.rowH;
-            ctx.text(this.font, Component.literal("x"), delX, ry + 6, delHover ? 0xFFFF5555 : 0xFF885555, false);
-        }
-
-        // Scrollbar
-        if (this.view.size() > this.rowsVisible) {
-            int trackX = this.listX + this.listW + 2;
-            int trackH = this.rowsVisible * this.rowH;
-            ctx.fill(trackX, this.listY, trackX + 3, this.listY + trackH, 0xFF2A2A33);
-            float frac = (float) this.scroll / (float) (this.view.size() - this.rowsVisible);
-            int thumbH = Math.max(16, trackH * this.rowsVisible / this.view.size());
-            int thumbY = this.listY + (int) ((trackH - thumbH) * frac);
-            ctx.fill(trackX, thumbY, trackX + 3, thumbY + thumbH, 0xFF6A6A80);
-        }
-
-        if (this.view.isEmpty()) {
-            ctx.centeredText(this.font, Component.literal("No bases logged yet."),
-                this.listX + this.listW / 2, this.listY + 20, 0xFF808080);
-        }
-    }
-
-    @Override
-    public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
-        if (event != null && event.buttonInfo() != null && event.buttonInfo().button() == 0) {
-            double mx = event.x();
-            double my = event.y();
-            if (mx >= this.listX && mx < this.listX + this.listW && my >= this.listY) {
-                int row = (int) ((my - this.listY) / this.rowH);
-                int idx = this.scroll + row;
-                if (row >= 0 && row < this.rowsVisible && idx < this.view.size()) {
-                    // Per-row delete zone (far right of the row).
-                    if (mx >= this.listX + this.listW - 20) {
-                        deleteEntry(this.view.get(idx));
-                    } else {
-                        this.selected = idx;
-                    }
-                    return true;
+    private void confirmDelete() {
+        if (selected == null || readFailed) return;
+        BaseLog.Entry target = selected;
+        BaseLog.Snapshot original = snapshot;
+        ConfirmScreen confirmation = new ConfirmScreen(confirmed -> {
+            if (confirmed) {
+                try {
+                    var backup = BaseLog.remove(BaseLog.file(), original, target);
+                    load();
+                    if (!readFailed) status = "Deleted one candidate. Backup: " + backup.getFileName();
+                } catch (IOException | SecurityException exception) {
+                    status = "Delete failed: " + exception.getMessage();
                 }
             }
-        }
-        return super.mouseClicked(event, doubleClick);
+            Minecraft.getInstance().gui.setScreen(this);
+        }, Component.literal("Delete one candidate?"), Component.literal(target.details()
+            + "\nOnly this log occurrence is removed. An original-file backup is kept."),
+            Component.literal("Delete one"), Component.literal("Cancel"));
+        Minecraft.getInstance().gui.setScreen(confirmation);
+        confirmation.setDelay(20);
     }
 
-    @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double hAmount, double vAmount) {
-        if (this.view.size() > this.rowsVisible) {
-            this.scroll -= (int) vAmount;
-            clampScroll();
+    @Override protected void renderContent(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float delta) {
+        graphics.centeredText(font, getTitle(), screenWidth() / 2, 8, 0xffffffff);
+        line(graphics, "Candidates only - not confirmed bases. World/server not recorded.", 22, 0xffffd17a);
+        int y = screenHeight() - 104;
+        if (selected == null) {
+            line(graphics, view.size() + " / " + snapshot.entries().size() + " candidates. Select a row to review.", y, 0xffeeeeee);
+            line(graphics, view.isEmpty() ? (query.isBlank() ? "No readable candidates." : "No matches. Clear the search or refresh.")
+                : "Tab / arrows select; row clicks never copy or delete.", y + 12, 0xffbfc7d5);
+        } else {
+            line(graphics, "Selected: " + selected.coord() + " | " + selected.dimension, y, 0xffffffff);
+            line(graphics, "Block: " + (selected.blockId.isEmpty() ? "not recorded" : selected.blockId)
+                + " | Logged: " + (selected.timestamp.isEmpty() ? "not recorded" : selected.timestamp), y + 12, 0xffc3d6eb);
+        }
+        line(graphics, nearest ? "X/Z only; not verified same-world distance. No player = newest."
+            : "Newest means file order. Copy Info includes all recorded details.", y + 24, 0xffbfc7d5);
+        if (!statusField.getValue().equals(status)) {
+            statusField.setValue(status);
+            statusField.setTooltip(Tooltip.create(Component.literal(status)));
+        }
+    }
+
+    private void line(GuiGraphicsExtractor graphics, String text, int y, int color) {
+        graphics.text(font, font.plainSubstrByWidth(text, Math.max(1, screenWidth() - 24)), 12, y, color, false);
+    }
+
+    @Override public Component getNarrationMessage() {
+        return Component.literal("Base Log Browser. Unverified candidates. " + status
+            + (selected == null ? "" : ". " + selected.details()));
+    }
+
+    @Override public void onClose() { Minecraft.getInstance().gui.setScreen(parent); }
+
+    private final class CandidateList extends ObjectSelectionList<CandidateRow> {
+        CandidateList(int width, int height, int top) {
+            super(Minecraft.getInstance(), width, height, top, 32);
+            setX(12);
+        }
+        @Override public int getRowWidth() { return getWidth() - 16; }
+        void replaceRows() {
+            BaseLog.Entry keep = selected;
+            setFocused(null);
+            clearEntries();
+            for (BaseLog.Entry entry : view) {
+                CandidateRow row = new CandidateRow(entry);
+                addEntry(row);
+                if (entry == keep) setSelected(row);
+            }
+            if (keep == null) setSelected(null);
+            setScrollAmount(keep == null ? 0 : Math.max(0, view.indexOf(keep) * 32 - getHeight() / 2 + 16));
+        }
+        @Override public void setSelected(CandidateRow row) {
+            super.setSelected(row);
+            selected = row == null ? null : row.entry;
+            updateActions();
+        }
+    }
+
+    private final class CandidateRow extends ObjectSelectionList.Entry<CandidateRow> {
+        final BaseLog.Entry entry;
+        CandidateRow(BaseLog.Entry entry) { this.entry = entry; }
+        @Override public Component getNarration() { return Component.literal(entry.details()); }
+        @Override public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
+            if (event.button() != 0) return false;
+            candidates.setSelected(this);
             return true;
         }
-        return super.mouseScrolled(mouseX, mouseY, hAmount, vAmount);
-    }
-
-    @Override
-    public void onClose() {
-        Minecraft.getInstance().setScreenAndShow(parent);
-    }
-
-    @Override
-    public boolean isPauseScreen() {
-        return false;
-    }
-
-    private static void sendMessage(String msg) {
-        Minecraft mc = Minecraft.getInstance();
-        if (mc != null && mc.player != null) {
-            mc.player.sendSystemMessage(Component.literal(msg));
+        @Override public void extractContent(GuiGraphicsExtractor graphics, int mouseX, int mouseY, boolean hovered, float delta) {
+            int width = Math.max(1, getContentWidth() - 4);
+            String distance = sortOrigin == null ? "" : " | X/Z only: "
+                + BaseLog.formatDistance(entry.distanceTo(sortOrigin[0], sortOrigin[1]));
+            graphics.text(font, font.plainSubstrByWidth(entry.coord() + " | " + BaseLog.shortDim(entry.dimension) + distance, width),
+                getContentX() + 2, getContentY() + 2, 0xffffffff, false);
+            graphics.text(font, font.plainSubstrByWidth((entry.blockId.isEmpty() ? "Block not recorded" : BaseLog.shortBlock(entry.blockId))
+                + " | " + entry.timestamp, width), getContentX() + 2, getContentY() + 14, 0xffc3d6eb, false);
         }
     }
 }

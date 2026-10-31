@@ -1,6 +1,6 @@
 # Minecraft-specific versions live in build.gradle.kts (`targets`), selected with -Pmc=26.2 / -Pmc=26.3.
 [versions]
-mod-version = "2.1"
+mod-version = "3.0.6-dev.1"
 
 minecraft = "26.2"
 fabric-loader = "0.19.3"

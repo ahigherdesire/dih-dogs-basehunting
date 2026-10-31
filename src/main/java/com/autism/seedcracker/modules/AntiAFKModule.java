@@ -49,6 +49,7 @@ public final class AntiAFKModule extends Module {
     private int strafeTimer;
     private boolean strafeLeft;
     private float yaw;
+    private boolean acting;
 
     public AntiAFKModule() {
         super(SeedcrackerAddon.ID + ":z-anti-afk", "Anti AFK",
@@ -62,12 +63,14 @@ public final class AntiAFKModule extends Module {
         sneakTimer = 0;
         strafeTimer = 0;
         strafeLeft = false;
+        acting = false;
     }
 
     @Override
     public void onDisable() {
         Minecraft mc = Minecraft.getInstance();
-        if (mc.player == null) return;
+        if (!acting || mc.options == null) return;
+        acting = false;
         mc.options.keyShift.setDown(false);
         mc.options.keyLeft.setDown(false);
         mc.options.keyRight.setDown(false);
@@ -78,14 +81,17 @@ public final class AntiAFKModule extends Module {
     public void tick() {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;
-        if (mc.gui.screen() != null) {
-            // GUI open: release everything (a latched key under a screen sticks until it closes).
-            mc.options.keyJump.setDown(false);
-            mc.options.keyShift.setDown(false);
-            mc.options.keyLeft.setDown(false);
-            mc.options.keyRight.setDown(false);
+        Module tunnel = com.autism.seedcracker.compat.ModuleLookup.get(SeedcrackerAddon.ID + ":tunnel-base-finder");
+        Module builder = com.autism.seedcracker.compat.ModuleLookup.get(SeedcrackerAddon.ID + ":schematic-builder");
+        if (mc.gui.screen() != null || com.autism.seedcracker.motion.Motion.isBusy()
+                || com.autism.seedcracker.motion.MineTask.active() || ElytraTravelModule.active()
+                || (tunnel != null && tunnel.isEnabled())
+                || (builder != null && builder.isEnabled() && "true".equals(builder.value("build")))) {
+            onDisable();
+            yaw = mc.player.getYRot();
             return;
         }
+        acting = true;
 
         if (jump.get()) {
             if (mc.options.keyJump.isDown()) {
@@ -133,7 +139,7 @@ public final class AntiAFKModule extends Module {
             // machine-detectable idle pattern there is.
             float jitter = 0.7f + random.nextFloat() * 0.6f;
             yaw = net.minecraft.util.Mth.wrapDegrees(yaw + spinSpeed.get() * jitter);
-            mc.player.setYRot(yaw);
+            com.autism.seedcracker.motion.RotationEngine.write(id(), com.autism.seedcracker.motion.RotationEngine.PRIORITY_IDLE, yaw, mc.player.getXRot());
         }
     }
 }

@@ -21,8 +21,6 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.entity.BlockEntity;
-import net.minecraft.world.level.block.entity.SpawnerBlockEntity;
 import net.minecraft.world.level.dimension.DimensionType;
 
 import java.util.ArrayList;
@@ -100,8 +98,8 @@ public class DungeonFinder extends BlockFinder {
 
         result.removeIf(pos -> {
 
-            BlockEntity blockEntity = this.world.getBlockEntity(pos);
-            if (!(blockEntity instanceof SpawnerBlockEntity)) return true;
+            // Resolving a live block entity here can mutate the chunk map from a finder worker.
+            if (!this.world.getBlockState(pos).is(Blocks.SPAWNER)) return true;
             int count = 0;
             for (BlockPos blockPos : POSSIBLE_FLOOR_POSITIONS) {
                 BlockPos currentPos = pos.offset(blockPos);

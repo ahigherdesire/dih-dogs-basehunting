@@ -1,1356 +1,364 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Native port of Spectre SusChunkFinderModule, d5a7dd3de0be67bea273d4ed74d2c76c11e0f6da.
 package com.autism.seedcracker.modules;
 
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.EnumMap;
+import java.util.EnumSet;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-
 import com.autism.seedcracker.SeedcrackerAddon;
 import com.autism.seedcracker.finder.ChunkFlagRenderer;
-
+import com.autism.seedcracker.finder.ChunkScanHelper;
+import com.autism.seedcracker.finder.FinderNotify;
+import com.autism.seedcracker.finder.FinderReport;
+import com.autism.seedcracker.finder.StoneStackScanner;
+import com.autism.seedcracker.render.BlockEspRenderer;
+import com.autism.seedcracker.spectre.chunks.ActivityClues;
+import com.autism.seedcracker.spectre.chunks.ChunkSignals;
+import com.autism.seedcracker.spectre.chunks.SusChunkScan;
+import com.autism.seedcracker.spectre.chunks.SuspectObjects;
+import com.autism.seedcracker.spectre.chunks.SuspectObjects.Category;
+import com.autism.seedcracker.util.pure.SusScore;
 import dihclient.api.module.BoolSetting;
 import dihclient.api.module.ColorSetting;
 import dihclient.api.module.EnumSetting;
 import dihclient.api.module.IntSetting;
+import dihclient.api.module.StringSetting;
 import dihclient.modules.Module;
-import dihclient.util.DihClientMessaging;
-import com.autism.seedcracker.compat.ClientNotify;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
-import net.minecraft.sounds.SoundEvents;
+import net.minecraft.network.protocol.Packet;
+import net.minecraft.network.protocol.game.ClientboundBlockUpdatePacket;
+import net.minecraft.network.protocol.game.ClientboundForgetLevelChunkPacket;
+import net.minecraft.network.protocol.game.ClientboundLevelChunkWithLightPacket;
+import net.minecraft.network.protocol.game.ClientboundLightUpdatePacket;
+import net.minecraft.network.protocol.game.ClientboundSectionBlocksUpdatePacket;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.level.ChunkPos;
-import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
 
-/**
- * Sus Chunk Finder.
- *
- * Modes (mostly ports of the strongest sus-chunk detectors from other clients):
- *  - DOGS: our own score-based detector (default) - independent underground signals (deep kelp,
- *    underground vines, rotated deepslate, flat mined rooms, storage blocks) must corroborate
- *    before a chunk flags, so no single natural quirk can false-flag.
- *  - XENON: fast below-Y15 player-placement detection (non-natural block deep down = placed).
- *  - TYPES: per-block-type detector (kelp, vines, amethyst, bamboo, bee nests, rotated deepslate).
- *  - NEW_CHUNKS: Boze NewChunks - a block-update packet carrying FLOWING (non-source) fluid marks
- *    a freshly GENERATED chunk (fluid ticks only run on generation). New chunks in a straight
- *    line = someone's active highway/tunnel frontier.
- *  - OLD_CHUNKS: inverse of NEW_CHUNKS - a full chunk arriving WITH flowing fluid already in it
- *    was loaded before (someone has been here; the flow was mid-tick when they left).
- *  - TUNNEL: Boze TunnelESP corridor classifier - flags chunks containing 2-high walkable air
- *    corridors with solid walls on the perpendicular axis (the signature of player tunnels).
- *
- * Flagged chunks are drawn by the shared {@link ChunkFlagRenderer}.
- */
 public final class SusChunkFinderModule extends Module {
-
-    public enum Mode { DOGS, WATER, XENON, TYPES, NEW_CHUNKS, OLD_CHUNKS, TUNNEL, ACTIVITY, SIGNAL, GEODE }
-
-    private final EnumSetting<Mode> mode = add(new EnumSetting<>(
-            "mode", "Mode", Mode.GEODE, Mode.values())
-        .description("GEODE (default) = Anubis sus-chunk logic: underground light pockets + amethyst (geodes = caves = player traffic). DOGS = our score-based detector: independent underground signals (deep kelp, underground vines, rotated deepslate, flat mined rooms, storage) must corroborate before flagging. WATER = raw Water-client detector (noisier: worldgen kelp ages + natural caves false-flag). XENON = below-Y15 placement. TYPES = block types. NEW_CHUNKS = freshly generated (packet fluid-tick). OLD_CHUNKS = visited before. TUNNEL = 2x1 corridors. ACTIVITY = load/unload cycling (another player's render bubble). SIGNAL = loaded chunks beyond the server's render radius (someone else streams them).")
-        .group("General"));
-    private final EnumSetting<com.autism.seedcracker.finder.FinderSensitivity> sensitivity = add(
-        new EnumSetting<>("sensitivity", "Sensitivity",
-            com.autism.seedcracker.finder.FinderSensitivity.HIGH, com.autism.seedcracker.finder.FinderSensitivity.values())
-        .description("XENON: player-only blocks (shulker/hopper/furnace/crafting...) flag at 1 (LOW: 2). Structure-prone blocks (torch/chest/rail/spawner/obsidian) need HIGH 2 / MEDIUM 4 / LOW 6. TYPES: scales the per-type min counts.")
-        .group("General"));
-
-    // DOGS-mode settings: independent signals add points; corroboration required to flag.
-    private final IntSetting dogsNeedScore = add(new IntSetting("dogs-need-score", "Score to flag", 3, 1, 10, 1)
-        .description("Points needed to flag. Player-only storage below Y50 = 3 (instant). Underground vines / deep kelp / rotated deepslate / flat mined room = 2 each (any two flag). Lone chest/spawner = 1 and is structure-vetoed.")
-        .group("Dogs").visibleWhen(() -> mode.get() == Mode.DOGS));
-    private final BoolSetting dogsStorage = add(new BoolSetting("dogs-storage", "Storage blocks", true)
-        .description("Shulker/hopper/barrel/furnace/enchanting table... below Y50 flags instantly. A plain chest/spawner only adds 1 point and is skipped inside natural structures.")
-        .group("Dogs").visibleWhen(() -> mode.get() == Mode.DOGS));
-    private final BoolSetting dogsVines = add(new BoolSetting("dogs-vines", "Underground vines", true)
-        .description("A vertical vine run below Y45: vines never generate down there, players drop them into shafts. (Surface jungle vines are ignored, unlike WATER mode.)")
-        .group("Dogs").visibleWhen(() -> mode.get() == Mode.DOGS));
-    private final IntSetting dogsVineLen = add(new IntSetting("dogs-vine-length", "Vine run", 8, 3, 64, 1)
-        .group("Dogs").visibleWhen(() -> mode.get() == Mode.DOGS && dogsVines.get()));
-    private final BoolSetting dogsKelp = add(new BoolSetting("dogs-kelp", "Deep kelp", true)
-        .description("Any kelp below Y24: oceans never reach that deep, so it's a player water tunnel or farm. (Replaces WATER's kelp-age check - worldgen kelp spawns with random high ages, the #1 false flag.)")
-        .group("Dogs").visibleWhen(() -> mode.get() == Mode.DOGS));
-    private final BoolSetting dogsDeepslate = add(new BoolSetting("dogs-deepslate", "Rotated deepslate", true)
-        .description("Sideways-axis deepslate, skipped when the chunk matches an ancient-city/stronghold signature (structure templates place rotated blocks too - another WATER false flag).")
-        .group("Dogs").visibleWhen(() -> mode.get() == Mode.DOGS));
-    private final IntSetting dogsDeepslateCount = add(new IntSetting("dogs-deepslate-count", "Rotated count", 3, 1, 50, 1)
-        .group("Dogs").visibleWhen(() -> mode.get() == Mode.DOGS && dogsDeepslate.get()));
-    private final BoolSetting dogsRoom = add(new BoolSetting("dogs-room", "Flat mined rooms", true)
-        .description("Many walkable cells on ONE flat Y level below Y20: players mine flat floors, natural caves don't. (Replaces WATER's big-cave flood fill, which flagged every 1.18 cave system.)")
-        .group("Dogs").visibleWhen(() -> mode.get() == Mode.DOGS));
-    private final IntSetting dogsRoomSize = add(new IntSetting("dogs-room-size", "Room floor cells", 30, 10, 128, 2)
-        .group("Dogs").visibleWhen(() -> mode.get() == Mode.DOGS && dogsRoom.get()));
-
-    // WATER-mode channels (Water client SusChunkFinder port: each detector its own toggle+threshold).
-    private final BoolSetting waterVines = add(new BoolSetting("water-vines", "Long vines", true)
-        .description("Flag a vine column this long: natural vines rarely exceed ~25 - 49+ means grown against a player build.")
-        .group("Water").visibleWhen(() -> mode.get() == Mode.WATER));
-    private final IntSetting waterVineLength = add(new IntSetting("water-vine-length", "Vine length", 49, 10, 120, 1)
-        .group("Water").visibleWhen(() -> mode.get() == Mode.WATER && waterVines.get()));
-    private final BoolSetting waterKelp = add(new BoolSetting("water-kelp", "Max-age kelp", true)
-        .description("Flag kelp whose AGE blockstate is near max: naturally generated kelp almost never reaches high ages - a fully-aged plant grew in real time near a player.")
-        .group("Water").visibleWhen(() -> mode.get() == Mode.WATER));
-    private final IntSetting waterKelpAge = add(new IntSetting("water-kelp-age", "Kelp min age", 13, 1, 25, 1)
-        .group("Water").visibleWhen(() -> mode.get() == Mode.WATER && waterKelp.get()));
-    private final BoolSetting waterDeepslate = add(new BoolSetting("water-deepslate", "Rotated deepslate", true)
-        .description("Flag sideways-axis deepslate (players place it rotated; worldgen is always upright).")
-        .group("Water").visibleWhen(() -> mode.get() == Mode.WATER));
-    private final IntSetting waterDeepslateCount = add(new IntSetting("water-deepslate-count", "Rotated count", 3, 1, 50, 1)
-        .group("Water").visibleWhen(() -> mode.get() == Mode.WATER && waterDeepslate.get()));
-    private final BoolSetting waterCaves = add(new BoolSetting("water-caves", "Big deep caves", true)
-        .description("Flood-fill air pockets between Y-60..20: an unusually big connected cavity is often a hollowed-out base.")
-        .group("Water").visibleWhen(() -> mode.get() == Mode.WATER));
-    private final IntSetting waterCavePoints = add(new IntSetting("water-cave-points", "Cave points", 27, 5, 100, 1)
-        .description("1 point = 25 connected air blocks.")
-        .group("Water").visibleWhen(() -> mode.get() == Mode.WATER && waterCaves.get()));
-
-    // ACTIVITY-mode settings (Water ActivityDebug port: load/unload cycling = someone's render bubble).
-    private final IntSetting activityCycles = add(new IntSetting("activity-cycles", "Min cycles", 4, 1, 30, 1)
-        .description("Complete load+unload cycles inside the window needed to flag.")
-        .group("Activity").visibleWhen(() -> mode.get() == Mode.ACTIVITY));
-    private final IntSetting activityUnloads = add(new IntSetting("activity-unloads", "Min unloads", 2, 0, 10, 1)
-        .group("Activity").visibleWhen(() -> mode.get() == Mode.ACTIVITY));
-    private final IntSetting activityWindow = add(new IntSetting("activity-window", "Window (s)", 120, 10, 600, 10)
-        .group("Activity").visibleWhen(() -> mode.get() == Mode.ACTIVITY));
-    private final IntSetting activityFade = add(new IntSetting("activity-fade", "Fade after (min)", 10, 1, 60, 1)
-        .description("Flagged activity chunks un-flag after this long without new cycles.")
-        .group("Activity").visibleWhen(() -> mode.get() == Mode.ACTIVITY));
-
-    // SIGNAL-mode settings (Water SignalScanner port: chunks loaded beyond the server's own radius).
-    private final IntSetting signalServerRadius = add(new IntSetting("signal-server-radius", "Server render radius", 8, 1, 32, 1)
-        .description("The server's chunk-send radius around YOU. Loaded chunks farther than this are being streamed for someone else.")
-        .group("Signal").visibleWhen(() -> mode.get() == Mode.SIGNAL));
-    private final BoolSetting signalNeedBlocks = add(new BoolSetting("signal-need-blocks", "Require signal blocks", true)
-        .description("Only flag out-of-radius chunks that ALSO contain storage/utility blocks (chest/furnace/hopper/spawner/anvil...).")
-        .group("Signal").visibleWhen(() -> mode.get() == Mode.SIGNAL));
-
-    private final IntSetting scanRadius = add(new IntSetting(
-            "scan-radius", "Scan radius (chunks)", 6, 1, 16, 1)
-        .description("Chunk bubble around the player scanned.")
-        .group("General"));
-    private final IntSetting rescanMs = add(new IntSetting(
-            "rescan-ms", "Rescan (ms)", 1000, 250, 10000, 250)
-        .description("How often each chunk is re-scanned (XENON). DOGS/WATER re-scan at 10x this (their signals barely change; re-scanning every second was an FPS sink).")
-        .group("General"));
-    private final ColorSetting color = add(new ColorSetting(
-            "color", "Chunk colour", 0x50FF5050)
-        .description("Colour of the flagged chunk marker.")
-        .group("Render"));
-    private final BoolSetting tracer = add(new BoolSetting(
-            "tracer", "Tracer", false)
-        .description("Draw a tracer line from the camera to each flagged chunk.")
-        .group("Render"));
-    private final BoolSetting notify = add(new BoolSetting(
-            "notification", "Notification", true)
-        .description("Toast + chat ping when a suspicious chunk is found.")
-        .group("General"));
-    private final BoolSetting skipStructures = add(new BoolSetting(
-            "skip-structures", "Skip natural structures", true)
-        .description("XENON: don't flag spawners/blocks inside dungeons or trial chambers (they aren't player bases).")
-        .group("General"));
-    private final IntSetting chunksPerTick = add(new IntSetting(
-            "chunks-per-tick", "Chunks per tick", 2, 1, 32, 1)
-        .description("Chunks scanned per tick in every scan mode (DOGS/WATER/XENON/TYPES; SIGNAL gets 4x since its check is cheap). 1 = smoothest FPS, higher = faster full sweep.")
-        .group("General"));
-
-    // TYPES-mode per-type toggles + per-type min-count sliders.
-    private final BoolSetting kelp = add(new BoolSetting("kelp", "Kelp", true).group("Types"));
-    private final IntSetting kelpCount = add(new IntSetting("kelp-count", "Kelp min count", 3, 1, 200, 1)
-        .description("Kelp blocks in a chunk needed to flag (dense kelp = a farm).").group("Types"));
-    private final BoolSetting caveVines = add(new BoolSetting("cave-vines", "Cave Vines", true).group("Types"));
-    private final IntSetting caveVinesCount = add(new IntSetting("cave-vines-count", "Cave vines min count", 3, 1, 200, 1)
-        .description("Cave-vine blocks in a chunk needed to flag.").group("Types"));
-    private final BoolSetting vines = add(new BoolSetting("vines", "Vines", true).group("Types"));
-    private final IntSetting vinesCount = add(new IntSetting("vines-count", "Vines min count", 3, 1, 200, 1)
-        .description("Vine blocks in a chunk needed to flag.").group("Types"));
-    private final BoolSetting amethystShards = add(new BoolSetting("amethyst-shards", "Amethyst Shards", true)
-        .description("Amethyst clusters/buds - harvested by players, so a strong base indicator.")
-        .group("Types"));
-    private final IntSetting amethystShardsCount = add(new IntSetting("amethyst-shards-count", "Amethyst shards min count", 1, 1, 200, 1)
-        .description("Amethyst clusters/buds in a chunk needed to flag.").group("Types"));
-    private final BoolSetting amethystBlocks = add(new BoolSetting("amethyst-blocks", "Amethyst Blocks", false)
-        .description("Full amethyst/budding blocks (geode structure - not player-placed).")
-        .group("Types"));
-    private final IntSetting amethystBlocksCount = add(new IntSetting("amethyst-blocks-count", "Amethyst blocks min count", 4, 1, 200, 1)
-        .description("Full amethyst/budding blocks in a chunk needed to flag.").group("Types"));
-    private final BoolSetting bamboo = add(new BoolSetting("bamboo", "Bamboo", true).group("Types"));
-    private final IntSetting bambooCount = add(new IntSetting("bamboo-count", "Bamboo min count", 3, 1, 200, 1)
-        .description("Bamboo blocks in a chunk needed to flag (dense bamboo = a farm).").group("Types"));
-    private final BoolSetting beeNest = add(new BoolSetting("bee-nest", "Bee Nest", true).group("Types"));
-    private final IntSetting beeNestCount = add(new IntSetting("bee-nest-count", "Bee nest min count", 1, 1, 200, 1)
-        .description("Bee nests/hives in a chunk needed to flag.").group("Types"));
-    private final BoolSetting rotatedDeepslate = add(new BoolSetting("rotated-deepslate", "Rotated Deepslate", true).group("Types"));
-    private final IntSetting rotatedDeepslateCount = add(new IntSetting("rotated-deepslate-count", "Rotated deepslate min count", 3, 1, 200, 1)
-        .description("Rotated (non-Y-axis) deepslate blocks in a chunk needed to flag.").group("Types"));
-    private final BoolSetting skullCandle = add(new BoolSetting("skull-candle", "Skulls / Candles", true)
-        .description("Mob skulls + candles (strong player-build / decoration markers, nyx signal).").group("Types"));
-    private final IntSetting skullCandleCount = add(new IntSetting("skull-candle-count", "Skull/candle min count", 1, 1, 200, 1)
-        .description("Skull or candle blocks in a chunk needed to flag.").group("Types"));
-    private final BoolSetting cocoa = add(new BoolSetting("cocoa", "Cocoa", false)
-        .description("Cocoa pods (a farm indicator, nyx signal).").group("Types"));
-    private final IntSetting cocoaCount = add(new IntSetting("cocoa-count", "Cocoa min count", 3, 1, 200, 1)
-        .description("Cocoa pods in a chunk needed to flag.").group("Types"));
-    private final BoolSetting villagerHall = add(new BoolSetting("villager-hall", "Villager hall (entities)", true)
-        .description("Villager/zombie-villager/allay/vindicator/warden entities in a chunk - an active base or villager hall (nyx signal).")
-        .group("Types"));
-    private final BoolSetting persistFlags = add(new BoolSetting("persist-flags", "Persist flags to disk", true)
-        .description("Save flagged chunks to disk keyed by dimension and reload them on join (survives relog, nyx behaviour).")
-        .group("General"));
-
-    // GEODE-mode settings (Anubis sus-chunk port).
-    private final BoolSetting glow = add(new BoolSetting("geode-glow", "Glow detection", true)
-        .description("Also flag underground light pockets (amethyst glow through a cave), not just direct amethyst. Finds geodes even when the amethyst is out of detail range.")
-        .group("Geode").visibleWhen(() -> mode.get() == Mode.GEODE));
-    private final IntSetting geodeMinY = add(new IntSetting("geode-min-y", "Min Y", -58, -64, 64, 2)
-        .description("Lowest Y scanned for the glow pocket.").group("Geode").visibleWhen(() -> mode.get() == Mode.GEODE));
-    private final IntSetting geodeMaxY = add(new IntSetting("geode-max-y", "Max Y", 30, -64, 64, 2)
-        .description("Highest Y scanned for the glow pocket (geodes form in the deepslate band).").group("Geode").visibleWhen(() -> mode.get() == Mode.GEODE));
-    private final IntSetting geodeGlowLight = add(new IntSetting("geode-glow-light", "Glow light level", 5, 1, 15, 1)
-        .description("Block-light level a cell must reach to count as a glow pocket (amethyst cluster emits 5).").group("Geode").visibleWhen(() -> mode.get() == Mode.GEODE));
-    private final IntSetting geodeSpread = add(new IntSetting("geode-spread", "Spread radius", 1, 0, 3, 1)
-        .description("Anubis spreadRadius: how many chunks away a hot chunk's heat corroborates its neighbours. Nearby geode chunks reinforce each other into one confirmed find.")
-        .group("Geode").visibleWhen(() -> mode.get() == Mode.GEODE));
-    private final IntSetting geodeHeatNeed = add(new IntSetting("geode-heat", "Heat to flag", 4, 1, 30, 1)
-        .description("Anubis sensitivity: accumulated heat a chunk needs (after neighbour spread) before it flags. Higher = fewer, more-confirmed finds.")
-        .group("Geode").visibleWhen(() -> mode.get() == Mode.GEODE));
-
-    private final Set<ChunkPos> flagged = ConcurrentHashMap.newKeySet();
-    private final Set<ChunkPos> notified = ConcurrentHashMap.newKeySet();
-    private final Map<ChunkPos, Long> lastScan = new ConcurrentHashMap<>();
-    /** Round-robin scan offset: the fixed-corner loops started at -radius every tick, so with a
-     * small chunks-per-tick budget the near-corner chunks hogged every scan and far chunks never
-     * got one (looked like the module "stopped registering" until toggled). Advances each call. */
-    private int scanOffset = 0;
+    public enum Mode {
+        CLASSIC, ANBS_PLUS, ACTIVITY_CLUES;
+        @Override public String toString() { return switch (this) { case CLASSIC -> "Classic"; case ANBS_PLUS -> "Dog+"; case ACTIVITY_CLUES -> "Activity clues"; }; }
+        public static String migrate(String token, Enum<?>[] choices) {
+            return "ANBS+ Scan".equals(token) && choices.length > 0 && choices[0].getDeclaringClass() == Mode.class ? "ANBS_PLUS" : token;
+        }
+    }
+    private static final int MAX_DETAILS = 8192, MAX_MARKERS = 2048;
+    private final EnumSetting<Mode> mode = add(new EnumSetting<>("mode", "Detection mode", Mode.CLASSIC, Mode.values(), Mode::toString)
+        .description("Chooses chunk flags, not the object outline categories. Classic and Dog+ use chunk heat; Activity clues uses bee points or optional natural context.").group("Detection"));
+    private final IntSetting threshold = add(new IntSetting("geode-heat", "Minimum chunk heat", 6, 1, 64, 1)
+        .description("Classic / Dog+ only: minimum spread heat at eligible peaks with terrain in Y -16..30. Peaks without terrain in that band use 1 instead. Does not filter object outlines.")
+        .group("Chunk heat").visibleWhen(() -> mode.get() != Mode.ACTIVITY_CLUES));
+    private final IntSetting spread = add(new IntSetting("geode-spread", "Heat spread (chunks)", 5, 0, 16, 1)
+        .description("Classic / Dog+ only: radius used to spread heat and vetoes and compare nearby peaks. An inference setting, not a change to server simulation distance.")
+        .group("Chunk heat").visibleWhen(() -> mode.get() != Mode.ACTIVITY_CLUES));
+    private final IntSetting radius = add(new IntSetting("scan-radius", "Scan radius (chunks)", 12, 2, 32, 1)
+        .description("Search already-loaded chunks around you. Does not load chunks; object outlines also have a separate block range.").group("Performance"));
+    private final IntSetting budget = add(new IntSetting("chunks-per-tick", "Completed chunks per tick", 2, 1, 128, 1)
+        .description("Maximum completed scans per tick, still bounded by the existing time budget. Larger values do not guarantee faster results.").group("Performance"));
+    private final BoolSetting notify = add(new BoolSetting("notify", "Notify on chunk hypotheses", true)
+        .description("Alerts for newly flagged chunks, not each outlined object. A flag or reported confidence is not proof of a base.").group("Chunk markers / alerts"));
+    private final BoolSetting detectMined = add(new BoolSetting("detect-mined-clusters", "Bare formation hypotheses", false)
+        .description("Optional outlines in every mode: large budding formations without visible crystals. Requires the Amethyst observation type; natural generation or hidden blocks can look the same. Does not flag chunks.").group("Growth / amethyst filters"));
+    private final ColorSetting minedColor = add(new ColorSetting("mined-color", "Bare formation colour", 0x60A64AFF).group("Object colours").visibleWhen(detectMined::get));
+    private final ColorSetting color = add(new ColorSetting("color", "Chunk flag colour", 0x96FF4444)
+        .description("Chunk markers only. Object outline colours are separate.").group("Chunk markers / alerts"));
+    private final BoolSetting tracer = add(new BoolSetting("tracer", "Trace to flagged chunks", false)
+        .description("Tracer lines to chunk flags, not individual object outlines.").group("Chunk markers / alerts"));
+    private final IntSetting clueThreshold = add(new IntSetting("clue-threshold", "Minimum bee clue points", 2, 1, 8, 1)
+        .description("Activity clues chunk flags AND bee outlines in every mode. Honey nests give 2 points each (up to 4); any crafted hive gives 4. Natural context bypasses this filter.")
+        .group("Growth / amethyst filters").visibleWhen(this::usesBeeThreshold));
+    private final BoolSetting naturalContext = add(new BoolSetting("natural-context", "Include natural growth context", false)
+        .description("Every mode: include short plants, immature amethyst and unscored growth / bees in outlines. Activity clues ALSO flags any selected growth, bypassing bee points. Can be noisy; does not prove player activity.").group("Growth / amethyst filters"));
+    private final IntSetting kelpLength = add(new IntSetting("kelp-length", "Kelp outline length (blocks)", 16, 2, 64, 1)
+        .description("Object outlines in every mode, not chunk flags. Natural context includes shorter plants too.")
+        .group("Growth / amethyst filters").visibleWhen(() -> usesPlantOutline(ActivityClues.Kind.KELP)));
+    private final IntSetting vineLength = add(new IntSetting("vine-length", "Vine outline length (blocks)", 16, 2, 64, 1)
+        .description("Object outlines in every mode, not chunk flags. Natural context includes shorter plants too.")
+        .group("Growth / amethyst filters").visibleWhen(() -> usesPlantOutline(ActivityClues.Kind.VINES)));
+    private final IntSetting caveVineLength = add(new IntSetting("cave-vine-length", "Cave vine outline length (blocks)", 20, 2, 64, 1)
+        .description("Object outlines in every mode, not chunk flags. Natural context includes shorter plants too.")
+        .group("Growth / amethyst filters").visibleWhen(() -> usesPlantOutline(ActivityClues.Kind.CAVE_VINES)));
+    private final IntSetting bambooLength = add(new IntSetting("bamboo-length", "Bamboo outline height (blocks)", 14, 2, 32, 1)
+        .description("Object outlines in every mode, not chunk flags. Natural context includes shorter plants too.")
+        .group("Growth / amethyst filters").visibleWhen(() -> usesPlantOutline(ActivityClues.Kind.BAMBOO)));
+    private final IntSetting matureClusters = add(new IntSetting("mature-clusters", "Amethyst outline: mature crystals", 12, 2, 128, 1)
+        .description("Minimum mature crystals in a connected formation containing budding amethyst for an outline, in every mode. Not Classic / Dog+ chunk heat or the bare-formation check.")
+        .group("Growth / amethyst filters").visibleWhen(this::usesMatureOutline));
+    private final IntSetting maturePercent = add(new IntSetting("mature-percent", "Amethyst outline: mature %", 75, 10, 100, 5)
+        .description("Minimum observed mature crystals as a percentage of crystals plus buds for an outline. Not time spent by players or base confidence.")
+        .group("Growth / amethyst filters").visibleWhen(this::usesMatureOutline));
+    private final IntSetting objectRange = add(new IntSetting("object-range", "Object outline range (blocks)", 128, 16, 256, 16)
+        .description("Limits collected object details and outlines around your eyes, not chunk heat. The optional Dogs / Observations panel reads these same objects; enable it separately.").group("Object outlines"));
+    private final EnumMap<ActivityClues.Kind, BoolSetting> clueKinds = new EnumMap<>(ActivityClues.Kind.class);
+    private final EnumMap<Category, BoolSetting> objectKinds = new EnumMap<>(Category.class);
+    private final EnumMap<Category, ColorSetting> objectColors = new EnumMap<>(Category.class);
+    private final Map<ChunkPos, SusChunkScan.Sample> samples = new LinkedHashMap<>();
+    private final Map<ChunkPos, Integer> scannedAt = new HashMap<>();
+    private final LinkedHashSet<ChunkPos> queue = new LinkedHashSet<>();
+    private final Set<ChunkPos> flagged = new HashSet<>(), alerted = new HashSet<>();
+    private final FinderReport reporter = new FinderReport("Sus", 45);
+    private ClientLevel world;
+    private SusChunkScan active;
+    private ChunkPos activePos;
+    private int ticks, storedDetails;
+    private boolean detailLimited;
+    private List<SuspectObjects.Marker> markers = List.of();
+    private final EnumMap<Category, List<AABB>> boxes = new EnumMap<>(Category.class);
 
     public SusChunkFinderModule() {
         super(SeedcrackerAddon.ID + ":z-sus-chunk-finder", "Sus Chunk Finder",
-            "Flags suspicious chunks (XENON below-Y15 base detection, or per-block-type).");
-    }
-
-    @Override
-    public void onEnable() {
-        flagged.clear();
-        notified.clear();
-        lastScan.clear();
-        newChunks.clear();
-        oldChunks.clear();
-        geodeHeat.clear();
-        geodeSelf.clear();
-        geodeVeto.clear();
-        geodeScanned.clear();
-        scanCursorAge.reset();
-        scanCursorTunnel.reset();
-        if (persistFlags.get()) loadFlags();
-    }
-
-    @Override
-    protected void onOptionValueChanged(String settingId) {
-        // Mode/sensitivity swap: drop old-mode flags immediately so results don't mix. The
-        // NEW/OLD chunk-age intel survives (it's packet history - a rescan can't rebuild it).
-        if ("mode".equals(settingId) || "sensitivity".equals(settingId)) {
-            flagged.clear();
-            notified.clear();
-            lastScan.clear();
-            activityFlaggedAt.clear();
-            geodeHeat.clear();
-            geodeSelf.clear();
-            geodeVeto.clear();
-            geodeScanned.clear();
-            scanCursorAge.reset();
-            scanCursorTunnel.reset();
+            "Chunk hypotheses plus separate object outlines. Start with Detection mode; outline filters work in every mode. Dogs / Observations is a separate opt-in panel. Confidence is not proof of a base.");
+        add(new StringSetting("mode-help", "What this mode flags", "").readonlySummary()
+            .formatter(ignored -> modeHelp()).group("Detection"));
+        add(new StringSetting("scan-status", "Current observations", "").readonlySummary()
+            .formatter(ignored -> info()).description("Chunk flags and object outlines are separate outputs. Reported confidence ranks clues; it is not a probability or proof of a base. Capped details can omit outlines.").group("Detection"));
+        for (var kind : ActivityClues.Kind.values()) clueKinds.put(kind, add(new BoolSetting("clue-" + kind.name().toLowerCase(java.util.Locale.ROOT).replace('_', '-'), kind.label, true)
+            .description("Include this type in Activity clues context and object outlines in EVERY mode. Does not switch Classic / Dog+ chunk heat on or off. Only honey nests and crafted hives supply bee points.").group("Observed growth types")));
+        for (var category : Category.values()) {
+            if (category == Category.BARE_GEODES) { objectKinds.put(category, detectMined); objectColors.put(category, minedColor); continue; }
+            objectKinds.put(category, add(new BoolSetting("objects-" + category.id(), category.label + " outlines", true)
+                .description(category == Category.ANOMALIES ? "Dog+ only: observed light edges inside flagged chunks. Not proof of a player or base."
+                    : "Show observed objects, independently of chunk flags. Growth / bees and amethyst also use the observation types and outline filters.")
+                .group("Object outlines").visibleWhen(() -> category != Category.ANOMALIES || mode.get() == Mode.ANBS_PLUS)));
+            objectColors.put(category, add(new ColorSetting("color-" + category.id(), category.label + " colour", category.color)
+                .group("Object colours").visibleWhen(() -> objectKinds.get(category).get() && (category != Category.ANOMALIES || mode.get() == Mode.ANBS_PLUS))));
         }
     }
 
-    @Override
-    public void onDisable() {
-        if (persistFlags.get()) saveFlags();
-        flagged.clear();
-        notified.clear();
-        lastScan.clear();
-        activity.clear();
-        activityFlaggedAt.clear();
-        geodeHeat.clear();
-        geodeSelf.clear();
-        geodeVeto.clear();
-        geodeScanned.clear();
-        ChunkFlagRenderer.clear(SeedcrackerAddon.ID + ":z-sus-chunk-finder");
+    private String modeHelp() {
+        return switch (mode.get()) {
+            case CLASSIC -> "Amethyst heat with young-bud vetoes (palette presence on DonutFolia), in skylit dimensions. Outline filters are separate.";
+            case ANBS_PLUS -> "Observed light-edge heat peaks in skylit dimensions. Light anomaly outlines show edges in flagged chunks.";
+            case ACTIVITY_CLUES -> "Bee points flag chunks. Natural context also flags any selected growth. Outline lengths do not set chunk flags.";
+        };
     }
 
-    // ---- disk persistence (nyx ChunkActivityScanner behaviour) ----
-    private java.nio.file.Path flagsFile() {
+    private boolean usesBeeThreshold() {
+        return !naturalContext.get() && clueKinds.get(ActivityClues.Kind.BEES).get()
+            && (mode.get() == Mode.ACTIVITY_CLUES || objectKinds.get(Category.GROWTH).get());
+    }
+
+    private boolean usesPlantOutline(ActivityClues.Kind kind) {
+        return objectKinds.get(Category.GROWTH).get() && clueKinds.get(kind).get();
+    }
+
+    private boolean usesMatureOutline() {
+        return !naturalContext.get() && objectKinds.get(Category.GEODES).get() && clueKinds.get(ActivityClues.Kind.AMETHYST).get();
+    }
+
+    private void clear(ClientLevel level) {
+        samples.clear(); scannedAt.clear(); queue.clear(); flagged.clear(); alerted.clear(); reporter.clear();
+        markers = List.of(); boxes.clear(); active = null; activePos = null; storedDetails = 0; ticks = 0; detailLimited = false; world = level;
+        ChunkFlagRenderer.clear(id()); ChunkFlagRenderer.clear(id() + ":mined");
+        for (var category : Category.values()) BlockEspRenderer.clear(id() + ":" + category.id());
+    }
+    @Override public void onEnable() {
+        clear(Minecraft.getInstance().level); BlockEspRenderer.init(); ChunkFlagRenderer.init();
+    }
+    @Override public void onDisable() { clear(null); }
+    @Override public void onGameLeft() {
+        clear(null);
+        if (com.autism.seedcracker.util.RelogPersistence.shouldDisableOnGameLeft()) { onDisable(); setEnabledSilently(false); }
+    }
+    @Override protected void onSettingsReset() { clear(isEnabled() ? Minecraft.getInstance().level : null); }
+    @Override protected void onOptionValueChanged(String id) {
+        if ("mode".equals(id) || "detect-mined-clusters".equals(id) || "object-range".equals(id)
+            || id.startsWith("clue-") && !"clue-threshold".equals(id) || id.startsWith("objects-")) clear(isEnabled() ? Minecraft.getInstance().level : null);
+    }
+
+    /** Call from ClientPacketListener TAIL hooks on the client thread, never Netty. */
+    public void onPacketApplied(ClientLevel level, Packet<?> packet) {
         Minecraft mc = Minecraft.getInstance();
-        String dim = mc.level != null ? mc.level.dimension().toString().replace(':', '_') : "unknown";
-        return dihclient.DihClientAddon.FOLDER.toPath()
-            .resolve("sus-chunk-flags-" + dim + ".txt");
+        if (!isEnabled() || !mc.isSameThread() || level == null || level != mc.level) return;
+        if (world != level) clear(level);
+        if (packet instanceof ClientboundLevelChunkWithLightPacket chunk) {
+            for (int dx = -1; dx <= 1; dx++) for (int dz = -1; dz <= 1; dz++) enqueue(new ChunkPos(com.autism.seedcracker.compat.McCompat.chunkX(chunk) + dx, com.autism.seedcracker.compat.McCompat.chunkZ(chunk) + dz));
+        } else if (packet instanceof ClientboundLightUpdatePacket light && mode.get() == Mode.ANBS_PLUS) {
+            for (int dx = -1; dx <= 1; dx++) for (int dz = -1; dz <= 1; dz++) enqueue(new ChunkPos(com.autism.seedcracker.compat.McCompat.chunkX(light) + dx, com.autism.seedcracker.compat.McCompat.chunkZ(light) + dz));
+        } else if (packet instanceof ClientboundForgetLevelChunkPacket forget) forget(forget.pos());
+        else if (packet instanceof ClientboundBlockUpdatePacket block) blockChanged(block.getPos());
+        else if (packet instanceof ClientboundSectionBlocksUpdatePacket section) section.runUpdates((pos, state) -> blockChanged(pos));
     }
-
-    private void loadFlags() {
-        try {
-            java.nio.file.Path f = flagsFile();
-            if (!java.nio.file.Files.exists(f)) return;
-            for (String line : java.nio.file.Files.readAllLines(f)) {
-                String[] p = line.trim().split(",");
-                if (p.length != 2) continue;
-                flagged.add(new ChunkPos(Integer.parseInt(p[0]), Integer.parseInt(p[1])));
+    private void blockChanged(BlockPos pos) {
+        for (int cx = (pos.getX() - 1) >> 4; cx <= (pos.getX() + 1) >> 4; cx++)
+            for (int cz = (pos.getZ() - 1) >> 4; cz <= (pos.getZ() + 1) >> 4; cz++) enqueue(new ChunkPos(cx, cz));
+    }
+    private void enqueue(ChunkPos pos) { if (nearby(pos) && queue.size() < 4225) queue.add(pos); }
+    private boolean nearby(ChunkPos pos) {
+        var mc = Minecraft.getInstance();
+        return world != null && mc.player != null && distance(mc.player.chunkPosition(), pos) <= radius.get()
+            && world.getChunkSource().getChunkNow(pos.x(), pos.z()) != null;
+    }
+    private static int distance(ChunkPos a, ChunkPos b) { return Math.max(Math.abs(a.x() - b.x()), Math.abs(a.z() - b.z())); }
+    private void forget(ChunkPos pos) {
+        var old = samples.remove(pos); if (old != null) storedDetails -= details(old);
+        scannedAt.remove(pos); queue.remove(pos); flagged.remove(pos); alerted.remove(pos);
+        if (pos.equals(activePos)) { active = null; activePos = null; }
+    }
+    private static int details(SusChunkScan.Sample sample) { return sample.objects().size() + sample.lightEdges().size(); }
+    private static SusChunkScan.Sample limit(SusChunkScan.Sample s, int capacity) {
+        int objects = Math.min(capacity, s.objects().size()), edges = Math.min(capacity - objects, s.lightEdges().size());
+        return new SusChunkScan.Sample(s.heat(), s.veto(), s.terrain(), s.complete(), s.activity(),
+            List.copyOf(s.objects().subList(0, objects)), List.copyOf(s.lightEdges().subList(0, edges)), s.limited() || objects + edges < details(s));
+    }
+    private void store(ChunkPos pos, SusChunkScan.Sample sample) {
+        var old = samples.remove(pos); if (old != null) storedDetails -= details(old);
+        if (storedDetails + details(sample) > MAX_DETAILS) {
+            ChunkPos center = Minecraft.getInstance().player.chunkPosition();
+            var distant = new ArrayList<>(samples.keySet());
+            distant.sort(Comparator.comparingInt((ChunkPos p) -> distance(center, p)).reversed());
+            for (ChunkPos other : distant) {
+                if (storedDetails + details(sample) <= MAX_DETAILS || distance(center, other) <= distance(center, pos)) break;
+                var prior = samples.get(other); storedDetails -= details(prior); samples.put(other, limit(prior, 0));
             }
-        } catch (Throwable ignored) {}
-    }
-
-    private void saveFlags() {
-        try {
-            java.nio.file.Path f = flagsFile();
-            java.nio.file.Files.createDirectories(f.getParent());
-            java.util.List<String> lines = new java.util.ArrayList<>();
-            for (ChunkPos p : flagged) lines.add(p.x() + "," + p.z());
-            java.nio.file.Files.write(f, lines);
-        } catch (Throwable ignored) {}
-    }
-
-    @Override
-    public void onGameLeft() { if (com.autism.seedcracker.util.RelogPersistence.shouldDisableOnGameLeft()) setEnabledSilently(false);
-    }
-
-    @Override
-    public void tick() {
-        Minecraft mc = Minecraft.getInstance();
-        if (mc.level == null || mc.player == null) return;
-
-        switch (mode.get()) {
-            case DOGS -> tickDogs(mc);
-            case WATER -> tickWater(mc);
-            case XENON -> tickXenon(mc);
-            case TYPES -> tickTypes(mc);
-            case NEW_CHUNKS, OLD_CHUNKS -> tickChunkAge(mc);
-            case TUNNEL -> tickTunnelScan(mc);
-            case ACTIVITY -> tickActivity(mc);
-            case SIGNAL -> tickSignal(mc);
-            case GEODE -> tickGeode(mc);
         }
-        ChunkFlagRenderer.feed(SeedcrackerAddon.ID + ":z-sus-chunk-finder", flagged, color.get(), tracer.get());
+        sample = limit(sample, Math.max(0, MAX_DETAILS - storedDetails));
+        samples.put(pos, sample); storedDetails += details(sample); scannedAt.put(pos, ticks);
     }
 
-    // ---- NEW_CHUNKS / OLD_CHUNKS mode (Boze NewChunks port) ----
-
-    /** Chunks seen with flowing fluid in a BLOCK UPDATE (fluid ticking = freshly generated). */
-    private final Set<ChunkPos> newChunks = ConcurrentHashMap.newKeySet();
-    /** Chunks whose FULL DATA arrived already containing flowing fluid (loaded before us). */
-    private final Set<ChunkPos> oldChunks = ConcurrentHashMap.newKeySet();
-
-    @Override
-    public boolean onPacketReceive(net.minecraft.network.protocol.Packet<?> packet) {
-        Mode m = mode.get();
-        // ACTIVITY: count chunk load/unload events (another player's render bubble cycling ours).
-        if (m == Mode.ACTIVITY) {
-            if (packet instanceof net.minecraft.network.protocol.game.ClientboundLevelChunkWithLightPacket load) {
-                onChunkActivity(new ChunkPos(com.autism.seedcracker.compat.McCompat.chunkX(load), com.autism.seedcracker.compat.McCompat.chunkZ(load)), true);
-            } else if (packet instanceof net.minecraft.network.protocol.game.ClientboundForgetLevelChunkPacket forget) {
-                onChunkActivity(forget.pos(), false);
-            }
-            return false;
-        }
-        if (m != Mode.NEW_CHUNKS && m != Mode.OLD_CHUNKS) return false;
+    @Override public void tick() {
         Minecraft mc = Minecraft.getInstance();
-        if (mc.level == null) return false;
-        // A block UPDATE carrying flowing (non-source) fluid means the server is actively fluid-
-        // ticking that chunk - which only happens during generation: a NEW chunk (Boze).
-        if (packet instanceof net.minecraft.network.protocol.game.ClientboundBlockUpdatePacket bup) {
-            var fs = bup.getBlockState().getFluidState();
-            if (!fs.isEmpty() && !fs.isSource()) {
-                ChunkPos cp = new ChunkPos(bup.getPos().getX() >> 4, bup.getPos().getZ() >> 4);
-                if (!oldChunks.contains(cp)) newChunks.add(cp);
+        if (world != mc.level) clear(mc.level);
+        if (world == null || mc.player == null) return;
+        ticks++;
+        if (ticks % 20 == 1) for (ChunkPos pos : List.copyOf(samples.keySet())) if (!nearby(pos)) forget(pos);
+        if (ticks % 100 == 1) {
+            queue.removeIf(pos -> !nearby(pos));
+            var loaded = ChunkScanHelper.loadedChunksAround(mc, radius.get());
+            loaded.sort(Comparator.comparingInt(chunk -> distance(mc.player.chunkPosition(), chunk.getPos())));
+            for (var chunk : loaded) {
+                var sample = samples.get(chunk.getPos());
+                if (sample == null || !sample.complete() || ticks - scannedAt.getOrDefault(chunk.getPos(), 0) >= 200) enqueue(chunk.getPos());
             }
-        } else if (packet instanceof net.minecraft.network.protocol.game.ClientboundSectionBlocksUpdatePacket sup) {
-            sup.runUpdates((pos, state) -> {
-                var fs = state.getFluidState();
-                if (!fs.isEmpty() && !fs.isSource()) {
-                    ChunkPos cp = new ChunkPos(pos.getX() >> 4, pos.getZ() >> 4);
-                    if (!oldChunks.contains(cp)) newChunks.add(cp);
-                }
+        }
+        long deadline = System.nanoTime() + 3_000_000L;
+        int completed = 0;
+        while (completed < budget.get() && System.nanoTime() < deadline) {
+            if (active == null) {
+                if (queue.isEmpty()) break;
+                activePos = queue.removeFirst(); if (!nearby(activePos)) continue;
+                var clues = EnumSet.noneOf(ActivityClues.Kind.class); clueKinds.forEach((kind, setting) -> { if (setting.get()) clues.add(kind); });
+                var categories = EnumSet.noneOf(Category.class); objectKinds.forEach((kind, setting) -> { if (setting.get()) categories.add(kind); });
+                if (detectMined.get()) categories.add(Category.GEODES);
+                String brand = mc.getConnection() == null ? null : mc.getConnection().serverBrand();
+                active = new SusChunkScan(world, world.getChunkSource().getChunkNow(activePos.x(), activePos.z()),
+                    brand != null && brand.contains("DonutFolia"), mode.get() == Mode.ANBS_PLUS, clues, categories, mc.player.getEyePosition(), objectRange.get());
+            }
+            if (!nearby(activePos)) { active = null; activePos = null; continue; }
+            if (!active.step(deadline)) break;
+            store(activePos, active.result()); active = null; activePos = null; completed++;
+        }
+        if (ticks % 20 == 1) rebuild(mc);
+        if (ticks % 5 == 1) refreshObjects(mc);
+        flagged.removeIf(pos -> !nearby(pos));
+        ChunkFlagRenderer.feed(id(), flagged, color.get(), tracer.get()); reporter.tick(mc, flagged);
+        for (var category : Category.values()) BlockEspRenderer.feedBoxes(id() + ":" + category.id(), boxes.getOrDefault(category, List.of()), objectColors.get(category).get() | 0xFF000000, 0);
+    }
+
+    private void rebuild(Minecraft mc) {
+        flagged.clear(); ChunkPos center = mc.player.chunkPosition();
+        if (mode.get() == Mode.ACTIVITY_CLUES) {
+            samples.forEach((pos, sample) -> { if (nearby(pos) && (sample.activity().score() >= clueThreshold.get() || naturalContext.get() && !sample.activity().empty())) flagged.add(pos); });
+        } else if (world.dimensionType().hasSkyLight()) {
+            var scores = new HashMap<ChunkPos, Integer>(); var vetoes = new HashMap<ChunkPos, Integer>();
+            samples.forEach((pos, sample) -> { if (sample.complete() && nearby(pos)) { scores.put(pos, sample.heat()); if (sample.veto()) vetoes.put(pos, 1); } });
+            var heat = StoneStackScanner.spreadHeat(scores, center, radius.get(), spread.get());
+            var veto = StoneStackScanner.spreadHeat(vetoes, center, radius.get(), spread.get());
+            heat.keySet().removeIf(pos -> veto.containsKey(pos) || !nearby(pos) || scannedNeighbours(pos) < 3);
+            int side = radius.get() * 2 + 1, minX = center.x() - radius.get(), minZ = center.z() - radius.get();
+            int[] field = new int[side * side];
+            heat.forEach((pos, value) -> field[(pos.x() - minX) * side + pos.z() - minZ] = value);
+            int[] maximum = ChunkSignals.neighborhoodMax(field, side, spread.get());
+            heat.forEach((pos, value) -> {
+                var sample = samples.get(pos); boolean terrain = sample == null || sample.terrain();
+                if (SusScore.geodePeakEligible(value, terrain, threshold.get(), maximum[(pos.x() - minX) * side + pos.z() - minZ])) flagged.add(pos);
             });
         }
-        return false;
+        alerted.removeIf(pos -> !nearby(pos));
+        for (ChunkPos pos : flagged) if (alerted.add(pos) && notify.get())
+            FinderNotify.flag("[Sus Finder]", mode.get() + " hypothesis at X:" + pos.getMinBlockX() + " Z:" + pos.getMinBlockZ(), false);
     }
-
-    /** Full-chunk arrival scan: flowing fluid already IN the chunk data = old chunk (visited). */
-    private void tickChunkAge(Minecraft mc) {
-        ChunkPos center = mc.player.chunkPosition();
-        int radius = scanRadius.get();
-        // Classify a few chunks per tick: full data containing flowing fluid = OLD.
-        for (LevelChunk chunk : scanCursorAge.nextBatch(mc, radius, 5000, chunksPerTick.get())) {
-            ChunkPos pos = chunk.getPos();
-            if (newChunks.contains(pos) || oldChunks.contains(pos)) continue;
-            if (chunkHasFlowingFluid(chunk)) oldChunks.add(pos);
-        }
-        // Render whichever age class the mode wants.
-        flagged.clear();
-        flagged.addAll(mode.get() == Mode.NEW_CHUNKS ? newChunks : oldChunks);
-        int pr = radius * 4; // age intel is worth keeping further out than live scans
-        flagged.removeIf(p -> tooFar(p, center, pr));
-    }
-
-    private final com.autism.seedcracker.finder.ScanCursor scanCursorAge = new com.autism.seedcracker.finder.ScanCursor();
-
-    private static boolean chunkHasFlowingFluid(LevelChunk chunk) {
-        int minY = chunk.getMinY();
-        BlockPos.MutableBlockPos m = new BlockPos.MutableBlockPos();
-        int startX = chunk.getPos().getMinBlockX();
-        int startZ = chunk.getPos().getMinBlockZ();
-        for (int s = 0; s < chunk.getSectionsCount(); s++) {
-            var sec = chunk.getSection(s);
-            if (sec.hasOnlyAir()) continue;
-            int baseY = minY + (s << 4);
-            for (int y = 0; y < 16; y++) {
-                for (int x = 0; x < 16; x++) {
-                    for (int z = 0; z < 16; z++) {
-                        var fs = sec.getBlockState(x, y, z).getFluidState();
-                        if (!fs.isEmpty() && !fs.isSource()) return true;
-                    }
-                }
-            }
-        }
-        return false;
-    }
-
-    // ---- TUNNEL mode (Boze TunnelESP corridor classifier) ----
-
-    private final com.autism.seedcracker.finder.ScanCursor scanCursorTunnel = new com.autism.seedcracker.finder.ScanCursor();
-
-    private void tickTunnelScan(Minecraft mc) {
-        ChunkPos center = mc.player.chunkPosition();
-        int radius = scanRadius.get();
-        int need = sensitivity.get().scale(4); // corridor cells needed to flag a chunk
-        for (LevelChunk chunk : scanCursorTunnel.nextBatch(mc, radius, 5000, chunksPerTick.get())) {
-            ChunkPos pos = chunk.getPos();
-            if (countTunnelCells(mc, chunk, need) >= need) {
-                if (flagged.add(pos) && notified.add(pos)) onNewFlag(pos);
-            } else {
-                flagged.remove(pos);
-            }
-        }
-        int pr = radius + 2;
-        flagged.removeIf(p -> tooFar(p, center, pr));
-        notified.removeIf(p -> tooFar(p, center, pr));
-    }
-
-    /**
-     * Boze method2074 corridor test: a tunnel cell is 2-high walkable air standing on solid
-     * ground where exactly one horizontal axis is open (both directions air) and the other is
-     * walled (both directions solid) - natural caves almost never form that pattern repeatedly.
-     * Only scans below Y50 (surface trenches are farms/creeper holes, not tunnels).
-     */
-    private int countTunnelCells(Minecraft mc, LevelChunk chunk, int enough) {
+    private int scannedNeighbours(ChunkPos pos) {
         int count = 0;
-        int startX = chunk.getPos().getMinBlockX();
-        int startZ = chunk.getPos().getMinBlockZ();
-        int minY = Math.max(chunk.getMinY() + 1, -60);
-        BlockPos.MutableBlockPos m = new BlockPos.MutableBlockPos();
-        for (int x = 0; x < 16; x++) {
-            for (int z = 0; z < 16; z++) {
-                for (int y = minY; y <= 50; y++) {
-                    m.set(startX + x, y, startZ + z);
-                    if (!mc.level.getBlockState(m).isAir()) continue;
-                    if (!mc.level.getBlockState(m.above()).isAir()) continue;          // 2-high air
-                    if (mc.level.getBlockState(m.below()).isAir()) continue;           // solid floor
-                    boolean eastOpen = mc.level.getBlockState(m.east()).isAir();
-                    boolean westOpen = mc.level.getBlockState(m.west()).isAir();
-                    boolean northOpen = mc.level.getBlockState(m.north()).isAir();
-                    boolean southOpen = mc.level.getBlockState(m.south()).isAir();
-                    boolean xCorridor = eastOpen && westOpen && !northOpen && !southOpen;
-                    boolean zCorridor = northOpen && southOpen && !eastOpen && !westOpen;
-                    if ((xCorridor || zCorridor) && ++count >= enough) return count;
-                }
-            }
+        for (int dx = -1; dx <= 1; dx++) for (int dz = -1; dz <= 1; dz++) {
+            if (dx == 0 && dz == 0) continue;
+            var other = new ChunkPos(pos.x() + dx, pos.z() + dz); var sample = samples.get(other);
+            if (sample != null && sample.complete() && nearby(other)) count++;
         }
         return count;
     }
 
-    // ---- XENON mode: fast below-Y15 player-placement detection ----
-
-    private void tickXenon(Minecraft mc) {
-        long now = System.currentTimeMillis();
-        int radius = scanRadius.get();
-        ChunkPos center = mc.player.chunkPosition();
-        int minY = mc.level.getMinY();
-
-        // Budgeted + round-robin: only chunksPerTick chunks per tick, and the start offset
-        // advances each tick so every chunk in the bubble gets a turn (see scanOffset above).
-        int budget = chunksPerTick.get();
-        int side = radius * 2 + 1;
-        int total = side * side;
-        for (int i = 0; i < total && budget > 0; i++) {
-            int idx = (scanOffset + i) % total;
-            int dx = idx % side - radius;
-            int dz = idx / side - radius;
-            {
-                int cx = center.x() + dx;
-                int cz = center.z() + dz;
-                if (!mc.level.hasChunk(cx, cz)) continue;
-                ChunkPos pos = new ChunkPos(cx, cz);
-
-                Long last = lastScan.get(pos);
-                if (last != null && now - last < rescanMs.get()) continue;
-                lastScan.put(pos, now);
-
-                LevelChunk chunk = mc.level.getChunk(cx, cz);
-                int code = susCodeBelowY15(mc, chunk, minY);
-                boolean sus = code > 0;
-                // Structure veto only applies to weak (structure-prone) evidence: a shulker or
-                // furnace inside a mineshaft is still a player stash.
-                if (code == 1 && skipStructures.get() && isNaturalStructure(mc, pos)) sus = false;
-                if (sus) {
-                    if (flagged.add(pos) && notified.add(pos)) onNewFlag(pos);
-                } else {
-                    flagged.remove(pos);
+    private void refreshObjects(Minecraft mc) {
+        Vec3 eye = mc.player.getEyePosition(); double rangeSq = (double) objectRange.get() * objectRange.get();
+        var candidates = new ArrayList<SuspectObjects.Found>(); var geodes = new HashMap<BlockPos, SuspectObjects.Found>(); var plants = new HashMap<BlockPos, SuspectObjects.Found>();
+        detailLimited = false;
+        for (var entry : samples.entrySet()) {
+            if (!nearby(entry.getKey())) continue;
+            var sample = entry.getValue(); detailLimited |= sample.limited();
+            for (var found : sample.objects()) {
+                if (Vec3.atCenterOf(found.pos()).distanceToSqr(eye) > rangeSq
+                    || !objectKinds.get(found.category()).get() && !(found.category() == Category.GEODES && detectMined.get())) continue;
+                if (found.category() == Category.GEODES) { geodes.put(found.pos(), found); continue; }
+                if (found.category() == Category.GROWTH) {
+                    var kind = ActivityClues.kind(found.state());
+                    if (kind == ActivityClues.Kind.KELP || kind == ActivityClues.Kind.VINES || kind == ActivityClues.Kind.CAVE_VINES || kind == ActivityClues.Kind.BAMBOO) { plants.put(found.pos(), found); continue; }
+                    var clue = new ActivityClues.Summary(); clue.add(found.state());
+                    if (!naturalContext.get() && (clue.score() == 0 || sample.activity().score() < clueThreshold.get())) continue;
                 }
-                if (--budget <= 0) break;
+                candidates.add(found);
             }
         }
-        scanOffset = (scanOffset + chunksPerTick.get()) % total;
-
-        // Prune out-of-range.
-        int pr = radius + 1;
-        flagged.removeIf(p -> tooFar(p, center, pr));
-        notified.removeIf(p -> tooFar(p, center, pr));
-        lastScan.keySet().removeIf(p -> tooFar(p, center, pr));
-    }
-
-    // ---- WATER mode: Water-client SusChunkFinder port (vines/kelp-age/deepslate/caves) ----
-
-    private void tickWater(Minecraft mc) {
-        long now = System.currentTimeMillis();
-        int radius = scanRadius.get();
-        ChunkPos center = mc.player.chunkPosition();
-
-        int budget = chunksPerTick.get();
-        int side = radius * 2 + 1;
-        int total = side * side;
-        for (int i = 0; i < total && budget > 0; i++) {
-            int idx = (scanOffset + i) % total;
-            int dx = idx % side - radius;
-            int dz = idx / side - radius;
-            {
-                int cx = center.x() + dx;
-                int cz = center.z() + dz;
-                if (!mc.level.hasChunk(cx, cz)) continue;
-                ChunkPos pos = new ChunkPos(cx, cz);
-
-                Long last = lastScan.get(pos);
-                if (last != null && now - last < rescanMs.get() * 10L) continue;
-                lastScan.put(pos, now);
-
-                LevelChunk chunk = mc.level.getChunk(cx, cz);
-                if (scanWaterChunk(mc, chunk)) {
-                    if (flagged.add(pos) && notified.add(pos)) onNewFlag(pos);
-                } else {
-                    flagged.remove(pos);
-                }
-                if (--budget <= 0) break;
-            }
-        }
-        scanOffset = (scanOffset + chunksPerTick.get()) % total;
-
-        int pr = radius + 1;
-        flagged.removeIf(p -> tooFar(p, center, pr));
-        notified.removeIf(p -> tooFar(p, center, pr));
-        lastScan.keySet().removeIf(p -> tooFar(p, center, pr));
-    }
-
-    private boolean scanWaterChunk(Minecraft mc, LevelChunk chunk) {
-        int startX = chunk.getPos().getMinBlockX();
-        int startZ = chunk.getPos().getMinBlockZ();
-        int minY = mc.level.getMinY();
-        int maxY = mc.level.getMaxY() - 1;
-        var sens = sensitivity.get();
-        BlockPos.MutableBlockPos m = new BlockPos.MutableBlockPos();
-
-        // Long vine columns (top-down run count; section palette walk with maybeHas fast-skip).
-        if (waterVines.get()
-            && vineRunHit(chunk, sens.scale(waterVineLength.get()), maxY, Math.max(minY, 30))) {
-            return true;
-        }
-
-        // Max-age kelp (AGE blockstate property; NOTE worldgen kelp also rolls high ages - noisy).
-        if (waterKelp.get()) {
-            int req = Math.min(25, waterKelpAge.get());
-            if (com.autism.seedcracker.finder.ChunkScanHelper.countBlocksInChunk(chunk,
-                    s -> s.is(Blocks.KELP)
-                        && s.hasProperty(net.minecraft.world.level.block.KelpBlock.AGE)
-                        && s.getValue(net.minecraft.world.level.block.KelpBlock.AGE) >= req, 1) >= 1) {
-                return true;
-            }
-        }
-
-        // Rotated (sideways-axis) deepslate: players place it rotated, plain worldgen never does.
-        if (waterDeepslate.get()) {
-            int req = sens.scale(waterDeepslateCount.get());
-            if (com.autism.seedcracker.finder.ChunkScanHelper.countBlocksInChunk(chunk,
-                    SusChunkFinderModule::isRotatedDeepslate, req) >= req) {
-                return true;
-            }
-        }
-
-        // Big deep cave: largest connected air pocket between Y-60..20 (flood fill inside the chunk).
-        if (waterCaves.get()) {
-            int reqPts = sens.scale(waterCavePoints.get());
-            int caveMinY = Math.max(minY, -60);
-            int caveMaxY = Math.min(20, maxY);
-            int cap = reqPts * 25 * 4;
-            java.util.Set<Long> visited = new java.util.HashSet<>();
-            int bestSize = 0;
-            for (int x = 0; x < 16; x++) {
-                for (int z = 0; z < 16; z++) {
-                    for (int y = caveMinY + 1; y < caveMaxY; y++) {
-                        long pk = ((long) x << 16) | ((long) z << 8) | (long) (y - caveMinY);
-                        if (visited.contains(pk)) continue;
-                        m.set(startX + x, y, startZ + z);
-                        if (!chunk.getBlockState(m).isAir()) continue;
-
-                        java.util.ArrayDeque<int[]> q = new java.util.ArrayDeque<>();
-                        q.add(new int[]{x, y, z});
-                        int size = 0;
-                        while (!q.isEmpty() && size < cap) {
-                            int[] cur = q.poll();
-                            int lx = cur[0], ly = cur[1], lz = cur[2];
-                            if (lx < 0 || lx >= 16 || lz < 0 || lz >= 16) continue;
-                            if (ly < caveMinY + 1 || ly >= caveMaxY) continue;
-                            long p2 = ((long) lx << 16) | ((long) lz << 8) | (long) (ly - caveMinY);
-                            if (!visited.add(p2)) continue;
-                            m.set(startX + lx, ly, startZ + lz);
-                            if (!chunk.getBlockState(m).isAir()) continue;
-                            size++;
-                            q.add(new int[]{lx + 1, ly, lz}); q.add(new int[]{lx - 1, ly, lz});
-                            q.add(new int[]{lx, ly + 1, lz}); q.add(new int[]{lx, ly - 1, lz});
-                            q.add(new int[]{lx, ly, lz + 1}); q.add(new int[]{lx, ly, lz - 1});
-                        }
-                        if (size > bestSize) bestSize = size;
-                    }
-                }
-            }
-            if (bestSize / 25 >= reqPts) return true;
-        }
-
-        return false;
-    }
-
-    // ---- DOGS mode: our own score-based detector (WATER's ideas, corroboration required) ----
-
-    private void tickDogs(Minecraft mc) {
-        long now = System.currentTimeMillis();
-        int radius = scanRadius.get();
-        ChunkPos center = mc.player.chunkPosition();
-
-        int budget = chunksPerTick.get();
-        int side = radius * 2 + 1;
-        int total = side * side;
-        for (int i = 0; i < total && budget > 0; i++) {
-            int idx = (scanOffset + i) % total;
-            int dx = idx % side - radius;
-            int dz = idx / side - radius;
-            {
-                int cx = center.x() + dx;
-                int cz = center.z() + dz;
-                if (!mc.level.hasChunk(cx, cz)) continue;
-                ChunkPos pos = new ChunkPos(cx, cz);
-
-                Long last = lastScan.get(pos);
-                if (last != null && now - last < rescanMs.get() * 10L) continue;
-                lastScan.put(pos, now);
-
-                LevelChunk chunk = mc.level.getChunk(cx, cz);
-                if (scanDogsChunk(mc, chunk)) {
-                    if (flagged.add(pos) && notified.add(pos)) onNewFlag(pos);
-                } else {
-                    flagged.remove(pos);
-                }
-                if (--budget <= 0) break;
-            }
-        }
-        scanOffset = (scanOffset + chunksPerTick.get()) % total;
-
-        int pr = radius + 1;
-        flagged.removeIf(p -> tooFar(p, center, pr));
-        notified.removeIf(p -> tooFar(p, center, pr));
-        lastScan.keySet().removeIf(p -> tooFar(p, center, pr));
-    }
-
-    /** Score-based: each independent signal adds points, {@code dogsNeedScore} points flag. */
-    private boolean scanDogsChunk(Minecraft mc, LevelChunk chunk) {
-        var sens = sensitivity.get();
-        int need = dogsNeedScore.get();
-        int score = 0;
-        Boolean natural = null; // lazy: the structure scan is the expensive part
-
-        // Player storage below Y50 (block-entity map lookup: near-free).
-        if (dogsStorage.get()) {
-            boolean strong = false, weak = false;
-            for (var e : chunk.getBlockEntities().entrySet()) {
-                if (e.getKey().getY() > 50) continue;
-                Block b = e.getValue().getBlockState().getBlock();
-                if (placementWeight(b) >= 2) { strong = true; break; }
-                if (b == Blocks.CHEST || b == Blocks.SPAWNER) weak = true;
-            }
-            if (strong) {
-                score += 3;
-            } else if (weak) {
-                if (natural == null) natural = isNaturalStructure(mc, chunk.getPos());
-                if (!natural) score += 1;
-            }
-            if (score >= need) return true;
-        }
-
-        // Vertical vine run below Y45: vines never generate that deep, players drop them into shafts.
-        if (dogsVines.get() && vineRunHit(chunk, dogsVineLen.get(), 45, chunk.getMinY())) {
-            score += 2;
-            if (score >= need) return true;
-        }
-
-        // Kelp below Y24: oceans never reach that deep - player water tunnel or farm.
-        if (dogsKelp.get() && kelpBelowY(chunk, 24)) {
-            score += 2;
-            if (score >= need) return true;
-        }
-
-        // Rotated deepslate, vetoed near ancient-city/stronghold signatures (templates rotate blocks).
-        if (dogsDeepslate.get()) {
-            int req = sens.scale(dogsDeepslateCount.get());
-            if (com.autism.seedcracker.finder.ChunkScanHelper.countBlocksInChunk(chunk,
-                    SusChunkFinderModule::isRotatedDeepslate, req) >= req) {
-                if (natural == null) natural = isNaturalStructure(mc, chunk.getPos());
-                if (!natural) {
-                    score += 2;
-                    if (score >= need) return true;
+        candidates.sort(Comparator.comparingDouble(found -> Vec3.atCenterOf(found.pos()).distanceToSqr(eye)));
+        var next = new ArrayList<SuspectObjects.Marker>();
+        for (int i = 0; i < Math.min(MAX_MARKERS, candidates.size()); i++) next.add(SuspectObjects.block(candidates.get(i), world));
+        detailLimited |= candidates.size() > MAX_MARKERS;
+        for (var formation : SuspectObjects.geodes(geodes, matureClusters.get(), maturePercent.get(), naturalContext.get(), detectMined.get() && !detailLimited))
+            if (objectKinds.get(formation.category()).get()) next.add(formation);
+        next.addAll(SuspectObjects.plants(plants, kind -> switch (kind) { case KELP -> kelpLength.get(); case VINES -> vineLength.get(); case CAVE_VINES -> caveVineLength.get(); case BAMBOO -> bambooLength.get(); default -> Integer.MAX_VALUE; }, naturalContext.get()));
+        if (objectKinds.get(Category.DISPLAYS).get()) {
+            int examined = 0;
+            for (var entity : world.entitiesForRendering()) {
+                if (++examined > 512) { detailLimited = true; break; }
+                var item = entity instanceof net.minecraft.world.entity.decoration.ArmorStand ? Items.ARMOR_STAND : entity instanceof net.minecraft.world.entity.decoration.ItemFrame ? Items.ITEM_FRAME : null;
+                if (item != null && entity.isAlive() && entity.distanceToSqr(eye) <= rangeSq) {
+                    var box = entity.getBoundingBox(); var icon = SuspectObjects.Icon.item(item);
+                    next.add(new SuspectObjects.Marker(box, List.of(box), Category.DISPLAYS, Map.of(icon, 1), icon.label()));
                 }
             }
         }
-
-        // Flat mined-out floor below Y20: players mine flat floors, natural caves don't.
-        if (dogsRoom.get() && flatRoomHit(chunk, sens.scale(dogsRoomSize.get()))) {
-            score += 2;
-        }
-
-        return score >= need;
-    }
-
-    private static boolean isRotatedDeepslate(BlockState s) {
-        return s.is(Blocks.DEEPSLATE)
-            && s.hasProperty(net.minecraft.world.level.block.state.properties.BlockStateProperties.AXIS)
-            && s.getValue(net.minecraft.world.level.block.state.properties.BlockStateProperties.AXIS) != net.minecraft.core.Direction.Axis.Y;
-    }
-
-    /**
-     * True when some column has a vertical VINE run of at least {@code need} between yLo..yHi.
-     * Section palette walk, top to bottom: skipped sections (all-air / provably vineless via
-     * maybeHas) reset every column's run - the column is broken there anyway.
-     */
-    private static boolean vineRunHit(LevelChunk chunk, int need, int yHi, int yLo) {
-        net.minecraft.world.level.chunk.LevelChunkSection[] sections = chunk.getSections();
-        int minY = chunk.getMinY();
-        int[] runs = new int[256];
-        for (int s = sections.length - 1; s >= 0; s--) {
-            int base = minY + (s << 4);
-            if (base > yHi) continue;
-            if (base + 15 < yLo) break;
-            var sec = sections[s];
-            if (sec == null || sec.hasOnlyAir() || !sec.maybeHas(st -> st.is(Blocks.VINE))) {
-                java.util.Arrays.fill(runs, 0);
-                continue;
-            }
-            int top = Math.min(15, yHi - base);
-            int bot = Math.max(0, yLo - base);
-            for (int y = top; y >= bot; y--) {
-                for (int x = 0; x < 16; x++) {
-                    for (int z = 0; z < 16; z++) {
-                        int ci = (x << 4) | z;
-                        if (sec.getBlockState(x, y, z).is(Blocks.VINE)) {
-                            if (++runs[ci] >= need) return true;
-                        } else {
-                            runs[ci] = 0;
-                        }
-                    }
-                }
+        if (mode.get() == Mode.ANBS_PLUS && objectKinds.get(Category.ANOMALIES).get()) for (var entry : samples.entrySet()) {
+            if (!flagged.contains(entry.getKey())) continue;
+            for (BlockPos pos : entry.getValue().lightEdges()) if (Vec3.atCenterOf(pos).distanceToSqr(eye) <= rangeSq) {
+                var box = new AABB(pos); next.add(new SuspectObjects.Marker(box, List.of(box), Category.ANOMALIES, Map.of(SuspectObjects.Icon.item(Items.AMETHYST_SHARD), 1), "Observed light edge"));
             }
         }
-        return false;
+        next.sort(Comparator.comparingDouble(marker -> marker.bounds().distanceToSqr(eye)));
+        if (next.size() > MAX_MARKERS) { detailLimited = true; next.subList(MAX_MARKERS, next.size()).clear(); }
+        markers = List.copyOf(next); boxes.clear();
+        for (var marker : markers) boxes.computeIfAbsent(marker.category(), ignored -> new ArrayList<>()).addAll(marker.shapes());
     }
 
-    /** Any kelp at or below {@code yCutoff} (section palette walk with maybeHas fast-skip). */
-    private static boolean kelpBelowY(LevelChunk chunk, int yCutoff) {
-        net.minecraft.world.level.chunk.LevelChunkSection[] sections = chunk.getSections();
-        int minY = chunk.getMinY();
-        java.util.function.Predicate<BlockState> p = st -> st.is(Blocks.KELP) || st.is(Blocks.KELP_PLANT);
-        for (int s = 0; s < sections.length; s++) {
-            int base = minY + (s << 4);
-            if (base > yCutoff) break;
-            var sec = sections[s];
-            if (sec == null || sec.hasOnlyAir() || !sec.maybeHas(p)) continue;
-            int top = Math.min(15, yCutoff - base);
-            for (int y = 0; y <= top; y++) {
-                for (int x = 0; x < 16; x++) {
-                    for (int z = 0; z < 16; z++) {
-                        if (p.test(sec.getBlockState(x, y, z))) return true;
-                    }
-                }
-            }
-        }
-        return false;
+    public record Observations(List<SuspectObjects.Marker> markers, Map<Category, Integer> colors, boolean limited) {}
+
+    /** Immutable current-world view; only the opt-in panel requests it, and it never starts a scan. */
+    public Observations observations() {
+        var mc = Minecraft.getInstance();
+        if (!isEnabled() || world == null || world != mc.level || mc.player == null) return null;
+        var colors = new EnumMap<Category, Integer>(Category.class);
+        objectColors.forEach((category, setting) -> colors.put(category, setting.get()));
+        return new Observations(markers, Map.copyOf(colors), detailLimited);
     }
-
-    /** >= need walkable cells (air + air above + solid floor) on ONE Y level below Y20. */
-    private static boolean flatRoomHit(LevelChunk chunk, int need) {
-        int minY = chunk.getMinY();
-        int lo = Math.max(minY + 1, -60);
-        int hi = 20;
-        if (hi <= lo) return false;
-        int startX = chunk.getPos().getMinBlockX();
-        int startZ = chunk.getPos().getMinBlockZ();
-        int[] perY = new int[hi - lo + 1];
-        BlockPos.MutableBlockPos m = new BlockPos.MutableBlockPos();
-        for (int x = 0; x < 16; x++) {
-            for (int z = 0; z < 16; z++) {
-                // Rolling window: one read per Y instead of three.
-                boolean below = !chunk.getBlockState(m.set(startX + x, lo - 1, startZ + z)).isAir();
-                boolean cur = chunk.getBlockState(m.set(startX + x, lo, startZ + z)).isAir();
-                for (int y = lo; y <= hi; y++) {
-                    boolean above = chunk.getBlockState(m.set(startX + x, y + 1, startZ + z)).isAir();
-                    if (below && cur && above && ++perY[y - lo] >= need) return true;
-                    below = !cur;
-                    cur = above;
-                }
-            }
-        }
-        return false;
-    }
-
-    // ---- ACTIVITY mode: chunk load/unload cycle counting (Water ActivityDebug port) ----
-
-    private static final class ChunkActivity {
-        final java.util.ArrayDeque<Long> loads = new java.util.ArrayDeque<>();
-        final java.util.ArrayDeque<Long> unloads = new java.util.ArrayDeque<>();
-
-        synchronized void add(java.util.ArrayDeque<Long> list) {
-            long now = System.currentTimeMillis();
-            list.addLast(now);
-            while (!list.isEmpty() && now - list.peekFirst() > 600_000L) list.pollFirst();
-        }
-
-        synchronized int recent(java.util.ArrayDeque<Long> list, long windowMs) {
-            long now = System.currentTimeMillis();
-            int n = 0;
-            for (long t : list) if (now - t < windowMs) n++;
-            return n;
-        }
-    }
-
-    private final Map<ChunkPos, ChunkActivity> activity = new ConcurrentHashMap<>();
-    private final Map<ChunkPos, Long> activityFlaggedAt = new ConcurrentHashMap<>();
-
-    private void onChunkActivity(ChunkPos pos, boolean load) {
-        ChunkActivity act = activity.computeIfAbsent(pos, k -> new ChunkActivity());
-        act.add(load ? act.loads : act.unloads);
-        long windowMs = activityWindow.get() * 1000L;
-        int loads = act.recent(act.loads, windowMs);
-        int unloads = act.recent(act.unloads, windowMs);
-        if (Math.min(loads, unloads) >= activityCycles.get() && unloads >= activityUnloads.get()) {
-            activityFlaggedAt.put(pos, System.currentTimeMillis());
-        }
-    }
-
-    private void tickActivity(Minecraft mc) {
-        long fadeMs = activityFade.get() * 60_000L;
-        long now = System.currentTimeMillis();
-        activityFlaggedAt.entrySet().removeIf(e -> now - e.getValue() > fadeMs);
-        flagged.clear();
-        flagged.addAll(activityFlaggedAt.keySet());
-        for (ChunkPos p : activityFlaggedAt.keySet()) {
-            if (notified.add(p)) onNewFlag(p);
-        }
-        // Bound the tracking map (chunks far outside interest fade naturally).
-        if (activity.size() > 4096) activity.clear();
-    }
-
-    // ---- SIGNAL mode: loaded chunks beyond the server's render radius (Water SignalScanner port) ----
-
-    private void tickSignal(Minecraft mc) {
-        long now = System.currentTimeMillis();
-        ChunkPos center = mc.player.chunkPosition();
-        int serverR = signalServerRadius.get();
-        int scanR = Math.max(scanRadius.get() * 4, serverR + 2); // look well past the bubble
-
-        int budget = chunksPerTick.get() * 4; // cheap per-chunk check, allow more
-        outer:
-        for (int dx = -scanR; dx <= scanR && budget > 0; dx++) {
-            for (int dz = -scanR; dz <= scanR; dz++) {
-                int dist = Math.max(Math.abs(dx), Math.abs(dz));
-                if (dist <= serverR) continue; // inside our own bubble - expected to be loaded
-                int cx = center.x() + dx;
-                int cz = center.z() + dz;
-                if (!mc.level.hasChunk(cx, cz)) continue;
-                ChunkPos pos = new ChunkPos(cx, cz);
-
-                Long last = lastScan.get(pos);
-                if (last != null && now - last < rescanMs.get()) continue;
-                lastScan.put(pos, now);
-                budget--;
-
-                boolean sus = true;
-                if (signalNeedBlocks.get()) {
-                    sus = chunkHasSignalBlocks(mc.level.getChunk(cx, cz));
-                }
-                if (sus) {
-                    if (flagged.add(pos) && notified.add(pos)) onNewFlag(pos);
-                } else {
-                    flagged.remove(pos);
-                }
-                if (budget <= 0) break outer;
-            }
-        }
-
-        int pr = scanR + 1;
-        flagged.removeIf(p -> tooFar(p, center, pr));
-        notified.removeIf(p -> tooFar(p, center, pr));
-        lastScan.keySet().removeIf(p -> tooFar(p, center, pr));
-    }
-
-    /** Storage/utility block entities = player worked here (SignalScanner's signal-block list). */
-    private static boolean chunkHasSignalBlocks(LevelChunk chunk) {
-        for (var e : chunk.getBlockEntities().entrySet()) {
-            Block b = e.getValue().getBlockState().getBlock();
-            if (b == Blocks.CHEST || b == Blocks.TRAPPED_CHEST || b == Blocks.ENDER_CHEST
-                || b == Blocks.FURNACE || b == Blocks.BLAST_FURNACE || b == Blocks.SMOKER
-                || b == Blocks.HOPPER || b == Blocks.DROPPER || b == Blocks.DISPENSER
-                || b == Blocks.SPAWNER || b == Blocks.BARREL || b == Blocks.ENCHANTING_TABLE
-                || b == Blocks.BEACON || b == Blocks.CONDUIT
-                || b instanceof net.minecraft.world.level.block.ShulkerBoxBlock) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * Sus code for the chunk below Y15: 0 = clean, 1 = weak evidence (structure-prone blocks -
-     * the natural-structure veto applies), 2 = strong evidence (player-only blocks - no veto).
-     * Splitting the evidence kills the old false flags: one mineshaft torch or natural obsidian
-     * used to flag instantly on HIGH/MEDIUM.
-     */
-    private int susCodeBelowY15(Minecraft mc, LevelChunk chunk, int minY) {
-        var sens = sensitivity.get();
-        int weakNeed = switch (sens) {
-            case HIGH -> 2;
-            case MEDIUM -> 4;
-            default -> 6;
-        };
-        int strongNeed = sens == com.autism.seedcracker.finder.FinderSensitivity.LOW ? 2 : 1;
-        int weak = 0, strong = 0;
-        int startX = chunk.getPos().getMinBlockX();
-        int startZ = chunk.getPos().getMinBlockZ();
-        BlockPos.MutableBlockPos m = new BlockPos.MutableBlockPos();
-        // Scan section-by-section, skipping all-air sections (hasOnlyAir is a cached palette
-        // check) - cuts most of the 20k block reads in cavey chunks.
-        for (int sy = minY; sy <= 15; sy += 16) {
-            int sectionIdx = chunk.getSectionIndex(sy);
-            if (sectionIdx < 0 || sectionIdx >= chunk.getSectionsCount()) continue;
-            if (chunk.getSection(sectionIdx).hasOnlyAir()) continue;
-            int yLo = Math.max(sy, minY);
-            int yHi = Math.min(sy + 15, 15);
-            for (int x = 0; x < 16; x++) {
-                for (int z = 0; z < 16; z++) {
-                    for (int y = yHi; y >= yLo; y--) {
-                        m.set(startX + x, y, startZ + z);
-                        Block b = chunk.getBlockState(m).getBlock();
-                        int w = placementWeight(b);
-                        if (w == 0) continue;
-                        // Obsidian touching lava/water formed naturally at a fluid contact.
-                        if (b == Blocks.OBSIDIAN && touchesFluid(mc, m)) continue;
-                        if (w >= 2) {
-                            if (++strong >= strongNeed) return 2;
-                        } else if (++weak >= weakNeed) {
-                            return 1;
-                        }
-                    }
-                }
-            }
-        }
-        // Near-threshold mix (e.g. 1 strong on LOW + several weak) still deserves a vetoable flag.
-        if (strong > 0 && weak >= 2) return 1;
-        return 0;
-    }
-
-    /** 2 = never generates below Y15 (player-only), 1 = also generates inside natural structures. */
-    private static int placementWeight(Block b) {
-        if (b == Blocks.ENDER_CHEST || b instanceof net.minecraft.world.level.block.ShulkerBoxBlock
-            || b == Blocks.HOPPER || b == Blocks.BARREL || b == Blocks.TRAPPED_CHEST
-            || b == Blocks.FURNACE || b == Blocks.BLAST_FURNACE || b == Blocks.SMOKER
-            || b == Blocks.CRAFTING_TABLE || b == Blocks.ENCHANTING_TABLE
-            || b == Blocks.ANVIL || b == Blocks.CHIPPED_ANVIL || b == Blocks.DAMAGED_ANVIL
-            || b == Blocks.BREWING_STAND || b == Blocks.BEE_NEST || b == Blocks.BEEHIVE
-            || b == Blocks.CAULDRON || b == Blocks.WATER_CAULDRON || b == Blocks.LAVA_CAULDRON
-            || b == Blocks.NETHER_PORTAL) {
-            return 2;
-        }
-        if (b == Blocks.CHEST || b == Blocks.SPAWNER || b == Blocks.OBSIDIAN
-            || b == Blocks.END_PORTAL_FRAME
-            || b == Blocks.TORCH || b == Blocks.WALL_TORCH
-            || b == Blocks.LANTERN || b == Blocks.SOUL_LANTERN
-            || b == Blocks.RAIL || b == Blocks.POWERED_RAIL
-            || b == Blocks.DETECTOR_RAIL || b == Blocks.ACTIVATOR_RAIL) {
-            return 1;
-        }
-        return 0;
-    }
-
-    /** Any of the 6 neighbours is lava/water (flowing or source). */
-    private static boolean touchesFluid(Minecraft mc, BlockPos pos) {
-        for (net.minecraft.core.Direction d : net.minecraft.core.Direction.values()) {
-            if (!mc.level.getBlockState(pos.relative(d)).getFluidState().isEmpty()) return true;
-        }
-        return false;
-    }
-
-    /**
-     * True if the chunk is part of a natural structure, not a base. Recognizes dungeons + trial
-     * chambers (as before) plus the generators of most false flags: mineshafts (planks/fences/
-     * cobwebs alongside their torches, rails and chests), ancient cities (deepslate tiles, sculk,
-     * soul lanterns - all below Y15 by definition) and strongholds (stone bricks + iron bars,
-     * around END_PORTAL_FRAME rooms). Plain TUFF was removed from the dungeon signature: it
-     * generates as natural ore-like blobs everywhere below Y0, so it both vetoed real bases and
-     * said nothing about structures.
-     */
-    private boolean isNaturalStructure(Minecraft mc, ChunkPos pos) {
-        int dungeonTrial = 0, mineshaft = 0, ancientCity = 0, stronghold = 0;
-        int baseX = pos.getMinBlockX();
-        int baseZ = pos.getMinBlockZ();
-        BlockPos.MutableBlockPos m = new BlockPos.MutableBlockPos();
-        for (int x = 0; x < 16; x += 2) {
-            for (int z = 0; z < 16; z += 2) {
-                for (int y = 15; y >= mc.level.getMinY(); y -= 2) {
-                    m.set(baseX + x, y, baseZ + z);
-                    Block b = mc.level.getBlockState(m).getBlock();
-                    if (b == Blocks.MOSSY_COBBLESTONE
-                        || b == Blocks.POLISHED_TUFF || b == Blocks.TUFF_BRICKS
-                        || b == Blocks.CHISELED_TUFF || b == Blocks.CHISELED_TUFF_BRICKS
-                        || b == Blocks.TRIAL_SPAWNER || b == Blocks.VAULT) {
-                        dungeonTrial++;
-                    } else if (b == Blocks.OAK_PLANKS || b == Blocks.DARK_OAK_PLANKS
-                        || b == Blocks.OAK_FENCE || b == Blocks.DARK_OAK_FENCE
-                        || b == Blocks.COBWEB) {
-                        mineshaft++;
-                    } else if (b == Blocks.DEEPSLATE_TILES || b == Blocks.CRACKED_DEEPSLATE_TILES
-                        || b == Blocks.DEEPSLATE_BRICKS || b == Blocks.CRACKED_DEEPSLATE_BRICKS
-                        || b == Blocks.SCULK || b == Blocks.SCULK_SENSOR || b == Blocks.SCULK_SHRIEKER
-                        || b == Blocks.SCULK_CATALYST || b == Blocks.SOUL_FIRE) {
-                        ancientCity++;
-                    } else if (b == Blocks.STONE_BRICKS || b == Blocks.MOSSY_STONE_BRICKS
-                        || b == Blocks.CRACKED_STONE_BRICKS || b == Blocks.IRON_BARS) {
-                        stronghold++;
-                    }
-                }
-            }
-        }
-        return dungeonTrial >= 3 || mineshaft >= 4 || ancientCity >= 4 || stronghold >= 4;
-    }
-
-    // ---- TYPES mode: incremental per-block-type scanner (spread across ticks to avoid lag) ----
-
-    private java.util.List<LevelChunk> scanQueue = java.util.Collections.emptyList();
-    private int scanIndex = 0;
-    private long lastQueueRefreshMs = 0;
-
-    private void tickTypes(Minecraft mc) {
-        // Refresh the chunk queue periodically (or when exhausted), then scan only chunksPerTick
-        // chunks this tick. A full pass therefore spreads over several seconds, so there's no
-        // single-tick FPS spike.
-        long now = System.currentTimeMillis();
-        if (scanIndex >= scanQueue.size() && now - lastQueueRefreshMs >= rescanMs.get()) {
-            scanQueue = com.autism.seedcracker.finder.ChunkScanHelper.loadedChunksAround(mc, scanRadius.get());
-            scanIndex = 0;
-            lastQueueRefreshMs = now;
-        }
-
-        int budget = chunksPerTick.get();
-        ChunkPos center = mc.player.chunkPosition();
-        while (budget-- > 0 && scanIndex < scanQueue.size()) {
-            LevelChunk chunk = scanQueue.get(scanIndex++);
-            scanChunkTypes(mc, chunk);
-        }
-
-        int pr = scanRadius.get() + 2;
-        flagged.removeIf(p -> tooFar(p, center, pr));
-        notified.removeIf(p -> tooFar(p, center, pr));
-    }
-
-    // ---- GEODE mode (Anubis sus-chunk port) ----
-    // Two detectors combined:
-    //   CLASSIC  - scan sections for amethyst clusters + buds (a geode = a cave = player traffic).
-    //   GLOW     - scan for underground light pockets: amethyst clusters EMIT light, so a lit
-    //              pocket deep underground with open air around it is almost always a geode, which
-    //              means a cave system - exactly where players tunnel and base.
-    // Both flag the chunk; the glow test is what makes this different from TYPES'amethyst check
-    // (it finds geodes even when the amethyst itself is out of render/simulation detail range).
-
-    // Anubis SusChunkFinderModule heat-map state. Chunks accumulate a heat score; a hot chunk
-    // spreads heat to its neighbours (corroboration); natural/unfinished chunks veto; only chunks
-    // with enough scanned neighbours + accumulated heat flag; hottestPerPatch dedupes the render.
-    private java.util.List<LevelChunk> geodeQueue = java.util.Collections.emptyList();
-    private int geodeIndex = 0;
-    private long lastGeodeRefreshMs = 0;
-
-    /** chunkKey -> accumulated heat (after spread). */
-    private final Map<Long, Integer> geodeHeat = new ConcurrentHashMap<>();
-    /** chunkKey -> this chunk's own (pre-spread) heat, so re-scans replace rather than stack. */
-    private final Map<Long, Integer> geodeSelf = new ConcurrentHashMap<>();
-    /** chunkKey -> vetoed (natural/unfinished area - Anubis hasUngrown suppresses it). */
-    private final Set<Long> geodeVeto = ConcurrentHashMap.newKeySet();
-    /** chunkKey -> already scanned (for the scanned-neighbours edge-artifact gate). */
-    private final Set<Long> geodeScanned = ConcurrentHashMap.newKeySet();
-
-    private static long ckey(int x, int z) { return (((long) x) << 32) | (z & 0xffffffffL); }
-    private static int ckx(long k) { return (int) (k >> 32); }
-    private static int ckz(long k) { return (int) k; }
-
-    private void tickGeode(Minecraft mc) {
-        long now = System.currentTimeMillis();
-        if (geodeIndex >= geodeQueue.size() && now - lastGeodeRefreshMs >= rescanMs.get()) {
-            geodeQueue = com.autism.seedcracker.finder.ChunkScanHelper.loadedChunksAround(mc, scanRadius.get());
-            geodeIndex = 0;
-            lastGeodeRefreshMs = now;
-        }
-
-        int budget = chunksPerTick.get();
-        while (budget-- > 0 && geodeIndex < geodeQueue.size()) {
-            LevelChunk chunk = geodeQueue.get(geodeIndex++);
-            scanChunkGeode(mc, chunk);
-        }
-
-        // Prune heat/scanned state well beyond range so it doesn't grow unbounded.
-        ChunkPos center = mc.player.chunkPosition();
-        int pr = scanRadius.get() + 4;
-        geodeHeat.keySet().removeIf(k -> Math.max(Math.abs(ckx(k) - center.x()), Math.abs(ckz(k) - center.z())) > pr);
-        geodeSelf.keySet().removeIf(k -> Math.max(Math.abs(ckx(k) - center.x()), Math.abs(ckz(k) - center.z())) > pr);
-        geodeVeto.removeIf(k -> Math.max(Math.abs(ckx(k) - center.x()), Math.abs(ckz(k) - center.z())) > pr);
-        geodeScanned.removeIf(k -> Math.max(Math.abs(ckx(k) - center.x()), Math.abs(ckz(k) - center.z())) > pr);
-
-        // Anubis computeVisible: a chunk flags if it has enough accumulated heat AND isn't vetoed
-        // AND enough of its neighbours were actually scanned (avoids map-edge false positives).
-        // hottestPerPatch then keeps only the single hottest chunk per connected cluster, so a big
-        // geode field renders ONE clean box instead of a wall of red.
-        flagged.clear();
-        Map<Long, Integer> visible = hottestPerPatch(geodeHeat);
-        int needHeat = geodeHeatNeed.get();
-        for (Map.Entry<Long, Integer> e : visible.entrySet()) {
-            long k = e.getKey();
-            if (e.getValue() < needHeat) continue;
-            if (geodeVeto.contains(k)) continue;
-            if (scannedNeighbours(ckx(k), ckz(k)) < 3) continue; // Anubis MIN_SCANNED_NEIGHBOURS
-            ChunkPos pos = new ChunkPos(ckx(k), ckz(k));
-            if (flagged.add(pos) && notified.add(pos)) onNewFlag(pos);
-        }
-        int pr2 = scanRadius.get() + 2;
-        notified.removeIf(p -> tooFar(p, center, pr2));
-    }
-
-    /** Score one chunk into the heat-map (Anubis updateChunk): compute self-heat, replace the old
-     * self contribution, spread the delta to neighbours, and record natural vetoes. */
-    private void scanChunkGeode(Minecraft mc, LevelChunk chunk) {
-        ChunkPos pos = chunk.getPos();
-        long key = ckey(pos.x(), pos.z());
-
-        // Self-heat: amethyst growth (classic) = a strong base heat, plus glow-cell count / 12
-        // (Anubis GeodeGlowScan returns the glow-edge cell count and divides by 12 for the score).
-        int self = 0;
-        int amethyst = com.autism.seedcracker.finder.ChunkScanHelper.countBlocksInChunk(
-            chunk, SusChunkFinderModule::isAmethystGrowth, 64);
-        if (amethyst > 0) self += 6 + amethyst; // a confirmed geode in this chunk
-        if (glow.get()) self += countGlowCells(mc, chunk) / 12;
-
-        boolean hasUngrown = amethyst == 0 && self == 0; // nothing here -> natural, veto it
-        geodeScanned.add(key);
-
-        int spread = geodeSpread.get();
-        int prev = geodeSelf.getOrDefault(key, 0);
-        int delta = self - prev;
-        geodeSelf.put(key, self);
-
-        // Replace the heat contribution across the spread area (Anubis forArea + heat.addTo).
-        for (int dx = -spread; dx <= spread; dx++) {
-            for (int dz = -spread; dz <= spread; dz++) {
-                long nk = ckey(pos.x() + dx, pos.z() + dz);
-                if (delta != 0) {
-                    int nv = geodeHeat.getOrDefault(nk, 0) + delta;
-                    if (nv <= 0) geodeHeat.remove(nk); else geodeHeat.put(nk, nv);
-                }
-            }
-        }
-
-        // Anubis hasUngrown veto: a fully-natural chunk (no amethyst, no glow) vetoes itself and its
-        // spread area so surrounding natural caves don't accumulate phantom heat.
-        if (hasUngrown) {
-            for (int dx = -spread; dx <= spread; dx++) {
-                for (int dz = -spread; dz <= spread; dz++) {
-                    geodeVeto.add(ckey(pos.x() + dx, pos.z() + dz));
-                }
-            }
-        } else {
-            geodeVeto.remove(key); // a real signal clears this chunk's veto
-        }
-    }
-
-    /** Count 8-neighbours that have been scanned (Anubis scannedNeighbours). */
-    private int scannedNeighbours(int x, int z) {
-        int n = 0;
-        for (int dx = -1; dx <= 1; dx++)
-            for (int dz = -1; dz <= 1; dz++)
-                if ((dx != 0 || dz != 0) && geodeScanned.contains(ckey(x + dx, z + dz))) n++;
-        return n;
-    }
-
-    /** Keep only the single hottest chunk per connected cluster (Anubis hottestPerPatch): flood-fill
-     * clusters of hot chunks and emit each cluster's max, so one geode = one rendered box. */
-    private static Map<Long, Integer> hottestPerPatch(Map<Long, Integer> heat) {
-        Map<Long, Integer> out = new ConcurrentHashMap<>();
-        Set<Long> done = ConcurrentHashMap.newKeySet();
-        for (Long seed : heat.keySet()) {
-            if (!done.add(seed)) continue;
-            // Flood-fill this cluster.
-            long best = seed;
-            int bestVal = heat.getOrDefault(seed, 0);
-            java.util.ArrayDeque<Long> queue = new java.util.ArrayDeque<>();
-            queue.add(seed);
-            while (!queue.isEmpty()) {
-                long cur = queue.poll();
-                int v = heat.getOrDefault(cur, 0);
-                if (v > bestVal) { bestVal = v; best = cur; }
-                for (int dx = -1; dx <= 1; dx++) {
-                    for (int dz = -1; dz <= 1; dz++) {
-                        if (dx == 0 && dz == 0) continue;
-                        long nk = ckey(ckx(cur) + dx, ckz(cur) + dz);
-                        if (heat.containsKey(nk) && done.add(nk)) queue.add(nk);
-                    }
-                }
-            }
-            out.put(best, bestVal);
-        }
-        return out;
-    }
-
-    /** Amethyst cluster or any bud stage (matches Anubis isAmethystGrowth). */
-    private static boolean isAmethystGrowth(net.minecraft.world.level.block.state.BlockState s) {
-        return s.is(Blocks.AMETHYST_CLUSTER) || s.is(Blocks.LARGE_AMETHYST_BUD)
-            || s.is(Blocks.MEDIUM_AMETHYST_BUD) || s.is(Blocks.SMALL_AMETHYST_BUD);
-    }
-
-    /** Open air or an amethyst cluster (matches Anubis open(): a cave cell a glow can reach). */
-    private static boolean isOpenForGlow(net.minecraft.world.level.block.state.BlockState s) {
-        return s.isAir() || s.is(Blocks.AMETHYST_CLUSTER);
-    }
-
-    /**
-     * Count underground glow-edge cells in the chunk (Anubis GeodeGlowScan.scan returns this count;
-     * SusChunkFinder divides it by 12 for the heat). A glow-edge cell is an open-air cell whose own
-     * block-light is dark but sits next to a lit cell at the amethyst-glow level - the rim of an
-     * amethyst pocket. Reads block light from the lighting engine (no world mutation, no fragile
-     * internal DataLayer access).
-     */
-    private int countGlowCells(Minecraft mc, LevelChunk chunk) {
-        int baseX = chunk.getPos().getMinBlockX();
-        int baseZ = chunk.getPos().getMinBlockZ();
-        int minY = Math.max(mc.level.getMinY() + 4, geodeMinY.get());
-        int maxY = Math.min(geodeMaxY.get(), mc.player.getBlockY());
-        int count = 0;
-        for (int y = minY; y <= maxY; y++) {
-            for (int x = 0; x < 16; x++) {
-                for (int z = 0; z < 16; z++) {
-                    BlockPos p = new BlockPos(baseX + x, y, baseZ + z);
-                    if (!isOpenForGlow(mc.level.getBlockState(p))) continue;
-                    if (mc.level.getMaxLocalRawBrightness(p) < geodeGlowLight.get()) continue;
-                    count++;
-                }
-            }
-        }
-        return count;
-    }
-
-    /** Count-vs-threshold with the sensitivity scale applied (TYPES mode). */
-    private boolean typeHit(LevelChunk chunk, java.util.function.Predicate<net.minecraft.world.level.block.state.BlockState> pred, int baseCount) {
-        int need = sensitivity.get().scale(baseCount);
-        return com.autism.seedcracker.finder.ChunkScanHelper.countBlocksInChunk(chunk, pred, need) >= need;
-    }
-
-    /** Run every enabled block-type check on one chunk and flag/unflag it. */
-    private void scanChunkTypes(Minecraft mc, LevelChunk chunk) {
-        ChunkPos pos = chunk.getPos();
-        boolean sus = false;
-        if (kelp.get() && typeHit(chunk, s -> s.is(Blocks.KELP) || s.is(Blocks.KELP_PLANT), kelpCount.get())) sus = true;
-        if (!sus && bamboo.get() && typeHit(chunk, s -> s.is(Blocks.BAMBOO) || s.is(Blocks.BAMBOO_SAPLING), bambooCount.get())) sus = true;
-        if (!sus && caveVines.get() && typeHit(chunk, s -> s.is(Blocks.CAVE_VINES) || s.is(Blocks.CAVE_VINES_PLANT), caveVinesCount.get())) sus = true;
-        if (!sus && vines.get() && typeHit(chunk, s -> s.is(Blocks.VINE), vinesCount.get())) sus = true;
-        if (!sus && amethystShards.get() && typeHit(chunk,
-                s -> s.is(Blocks.AMETHYST_CLUSTER) || s.is(Blocks.LARGE_AMETHYST_BUD)
-                    || s.is(Blocks.MEDIUM_AMETHYST_BUD) || s.is(Blocks.SMALL_AMETHYST_BUD),
-                amethystShardsCount.get())) sus = true;
-        if (!sus && amethystBlocks.get() && typeHit(chunk,
-                s -> s.is(Blocks.AMETHYST_BLOCK) || s.is(Blocks.BUDDING_AMETHYST),
-                amethystBlocksCount.get())) sus = true;
-        if (!sus && beeNest.get() && typeHit(chunk, s -> s.is(Blocks.BEE_NEST) || s.is(Blocks.BEEHIVE), beeNestCount.get())) sus = true;
-        if (!sus && rotatedDeepslate.get() && typeHit(chunk,
-                s -> s.is(Blocks.DEEPSLATE)
-                    && s.hasProperty(net.minecraft.world.level.block.state.properties.BlockStateProperties.AXIS)
-                    && s.getValue(net.minecraft.world.level.block.state.properties.BlockStateProperties.AXIS) != net.minecraft.core.Direction.Axis.Y,
-                rotatedDeepslateCount.get())) sus = true;
-        if (!sus && skullCandle.get() && typeHit(chunk, SusChunkFinderModule::isSkullOrCandle, skullCandleCount.get())) sus = true;
-        if (!sus && cocoa.get() && typeHit(chunk, s -> s.is(Blocks.COCOA), cocoaCount.get())) sus = true;
-        if (!sus && villagerHall.get() && chunkHasVillagerHall(mc, pos)) sus = true;
-        if (sus) {
-            if (flagged.add(pos) && notified.add(pos)) onNewFlag(pos);
-        } else {
-            flagged.remove(pos);
-        }
-    }
-
-    private static boolean tooFar(ChunkPos a, ChunkPos b, int radius) {
-        return Math.abs(a.x() - b.x()) > radius || Math.abs(a.z() - b.z()) > radius;
-    }
-
-    /** Mob skulls + candles (nyx player-build / decoration signal). Dyed candles are typed
-     *  collections in 26.2 (no plain Blocks constant), so candles are matched by registry id. */
-    private static boolean isSkullOrCandle(net.minecraft.world.level.block.state.BlockState s) {
-        Block b = s.getBlock();
-        if (b == Blocks.SKELETON_SKULL || b == Blocks.WITHER_SKELETON_SKULL
-            || b == Blocks.ZOMBIE_HEAD || b == Blocks.CREEPER_HEAD || b == Blocks.PLAYER_HEAD
-            || b == Blocks.PIGLIN_HEAD || b == Blocks.DRAGON_HEAD
-            || b == Blocks.SKELETON_WALL_SKULL || b == Blocks.WITHER_SKELETON_WALL_SKULL
-            || b == Blocks.ZOMBIE_WALL_HEAD || b == Blocks.CREEPER_WALL_HEAD || b == Blocks.PLAYER_WALL_HEAD
-            || b == Blocks.PIGLIN_WALL_HEAD || b == Blocks.DRAGON_WALL_HEAD) return true;
-        if (b == Blocks.CANDLE) return true;
-        net.minecraft.resources.Identifier id = net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(b);
-        return id != null && id.toString().endsWith("_candle");
-    }
-
-    /** True if the chunk has a villager/zombie-villager/allay/vindicator/warden (nyx base signal). */
-    private static boolean chunkHasVillagerHall(Minecraft mc, ChunkPos pos) {
-        if (mc.level == null) return false;
-        net.minecraft.world.phys.AABB box = new net.minecraft.world.phys.AABB(
-            pos.getMinBlockX(), mc.level.getMinY(), pos.getMinBlockZ(),
-            pos.getMaxBlockX() + 1, mc.level.getMaxY() + 1, pos.getMaxBlockZ() + 1);
-        for (net.minecraft.world.entity.Entity e : mc.level.getEntitiesOfClass(
-                net.minecraft.world.entity.Entity.class, box,
-                x -> x instanceof net.minecraft.world.entity.npc.villager.Villager
-                    || x instanceof net.minecraft.world.entity.monster.zombie.ZombieVillager
-                    || x instanceof net.minecraft.world.entity.monster.illager.Vindicator
-                    || x instanceof net.minecraft.world.entity.animal.allay.Allay
-                    || x instanceof net.minecraft.world.entity.monster.warden.Warden)) {
-            return true;
-        }
-        return false;
-    }
-
-    private void onNewFlag(ChunkPos pos) {
-        if (!notify.get()) return;
-        String msg = "Sus chunk at X:" + pos.getMinBlockX() + " Z:" + pos.getMinBlockZ();
-        ClientNotify.warning(msg);
-        DihClientMessaging.sendPrefixed("§d[SusChunkFinder] §f" + msg);
-        Minecraft mc = Minecraft.getInstance();
-        if (mc.player != null) mc.player.playSound(SoundEvents.EXPERIENCE_ORB_PICKUP, 1.0f, 1.0f);
-    }
+    @Override public String info() { return mode.get() + " / " + flagged.size() + " chunk hypotheses / " + markers.size() + " outlines" + (detailLimited ? " (details capped)" : "") + reporter.coverageSuffix(); }
 }

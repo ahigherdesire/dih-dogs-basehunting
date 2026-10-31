@@ -34,7 +34,9 @@ public final class AutoFireworkModule extends Module {
     private int prevSlot = -1;
     private int stage = 0;
     private int counter = 0;
-    private int cooldownCounter = 0;
+    /** Wall-clock cooldown: a tick counter never decrements while the module is self-disabled,
+     * so a cooldown of N used to eat N wasted key presses. */
+    private long cooldownUntilMs = 0;
 
     public AutoFireworkModule() {
         super(SeedcrackerAddon.ID + ":auto-firework", "Auto Firework",
@@ -56,10 +58,12 @@ public final class AutoFireworkModule extends Module {
         if (stage == 0) {
             // Krypton safety gates: only boost while gliding / with an elytra equipped, never when
             // already holding a rocket or a bow/crossbow, and respect the boost cooldown.
-            if (cooldownCounter > 0) { cooldownCounter--; setEnabledSilently(false); return; }
+            if (System.currentTimeMillis() < cooldownUntilMs) { setEnabledSilently(false); return; }
             if (requireElytra.get()) {
                 ItemStack chest = mc.player.getInventory().getItem(38); // chest armour slot
                 if (!chest.is(Items.ELYTRA)) { setEnabledSilently(false); return; }
+                // Equipped isn't flying: a rocket used on the ground is wasted (A20).
+                if (!mc.player.isFallFlying()) { setEnabledSilently(false); return; }
             }
             ItemStack held = mc.player.getMainHandItem();
             if (held.is(Items.FIREWORK_ROCKET) || held.is(Items.BOW) || held.is(Items.CROSSBOW)) {
@@ -84,7 +88,7 @@ public final class AutoFireworkModule extends Module {
         } else if (stage == 2) {
             if (counter++ < switchDelay.get()) return;
             if (prevSlot >= 0) com.autism.seedcracker.util.InvSync.select(mc, prevSlot);
-            cooldownCounter = boostCooldown.get();
+            cooldownUntilMs = System.currentTimeMillis() + boostCooldown.get() * 50L;
             setEnabledSilently(false);
         }
     }
