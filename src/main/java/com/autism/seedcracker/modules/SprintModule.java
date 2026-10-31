@@ -22,6 +22,7 @@ public final class SprintModule extends Module {
         .group("General"));
 
     private boolean wasSprinting;
+    private boolean holdingSprintKey;
 
     public SprintModule() {
         super(SeedcrackerAddon.ID + ":z-sprint", "Sprint",
@@ -37,20 +38,40 @@ public final class SprintModule extends Module {
     @Override
     public void onDisable() {
         Minecraft mc = Minecraft.getInstance();
-        if (mc.player == null) return;
-        mc.player.setSprinting(wasSprinting);
-        if (holdKey.get()) {
-            mc.options.keySprint.setDown(false);
-        }
+        if (mc.player != null) mc.player.setSprinting(wasSprinting && mc.player.getFoodData().getFoodLevel() > 6
+            && !mc.player.isUsingItem() && !mc.player.isShiftKeyDown());
+        releaseSprintKey(mc);
+    }
+
+    private void releaseSprintKey(Minecraft mc) {
+        if (holdingSprintKey && mc.options != null) mc.options.keySprint.setDown(false);
+        holdingSprintKey = false;
+    }
+
+    @Override public void onGameLeft() {
+        releaseSprintKey(Minecraft.getInstance());
+        wasSprinting = false;
+        if (com.autism.seedcracker.util.RelogPersistence.shouldDisableOnGameLeft()) setEnabledSilently(false);
     }
 
     @Override
     public void tick() {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;
-        mc.player.setSprinting(true);
-        if (holdKey.get()) {
-            mc.options.keySprint.setDown(true);
+        // Only force sprint when vanilla would allow it: re-setting while vanilla unsets (hungry,
+        // using item, sneaking, stationary) flip-flops START/STOP_SPRINTING packets every tick.
+        boolean movingForward = mc.player.input != null && mc.player.input.keyPresses.forward();
+        boolean canSprint = movingForward && mc.gui.screen() == null
+            && !mc.player.isUsingItem()
+            && !mc.player.isShiftKeyDown()
+            && mc.player.getFoodData().getFoodLevel() > 6;
+        if (canSprint && !mc.player.isSprinting()) {
+            mc.player.setSprinting(true);
         }
+        if (holdKey.get() && canSprint && !mc.options.keySprint.isDown()) {
+            mc.options.keySprint.setDown(true);
+            holdingSprintKey = true;
+        }
+        if (!holdKey.get() || !canSprint) releaseSprintKey(mc);
     }
 }

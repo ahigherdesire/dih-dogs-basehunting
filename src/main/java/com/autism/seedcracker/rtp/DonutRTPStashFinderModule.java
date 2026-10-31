@@ -170,82 +170,87 @@ public final class DonutRTPStashFinderModule extends Module {
         .description("Disable the module once a base is logged (Save & RTP mode).")
         .group("Behaviour"));
 
+    // All the Baritone passthrough tuning hides behind one switch - defaults are the proven run.
+    private final BoolSetting showAdvanced = add(new BoolSetting("advanced", "Show advanced (Baritone)", false)
+        .description("Reveal the ~30 Baritone passthrough settings (movement, avoidance, falling, render, elytra).")
+        .group("Behaviour"));
+
     // ---- Baritone: core toggles ----
     private final BoolSetting allowBreak = add(new BoolSetting("b-allow-break", "Allow break", true)
-        .description("Let Baritone break blocks.").group("Baritone"));
+        .description("Let Baritone break blocks.").group("Baritone").visibleWhen(showAdvanced::get));
     private final BoolSetting allowPlace = add(new BoolSetting("b-allow-place", "Allow place", true)
-        .description("Let Baritone place blocks.").group("Baritone"));
+        .description("Let Baritone place blocks.").group("Baritone").visibleWhen(showAdvanced::get));
     private final BoolSetting allowSprint = add(new BoolSetting("b-allow-sprint", "Allow sprint", true)
-        .description("Let Baritone sprint.").group("Baritone"));
+        .description("Let Baritone sprint.").group("Baritone").visibleWhen(showAdvanced::get));
     private final BoolSetting autoEat = add(new BoolSetting("b-auto-eat", "Auto eat", true)
-        .description("Let Baritone eat automatically.").group("Baritone"));
+        .description("Let Baritone eat automatically.").group("Baritone").visibleWhen(showAdvanced::get));
     private final BoolSetting autoTool = add(new BoolSetting("b-auto-tool", "Auto tool", true)
-        .description("Automatically select the best tool.").group("Baritone"));
+        .description("Automatically select the best tool.").group("Baritone").visibleWhen(showAdvanced::get));
     private final BoolSetting allowInventory = add(new BoolSetting("b-allow-inventory", "Allow inventory moves", false)
-        .description("Let Baritone move items to the hotbar.").group("Baritone"));
+        .description("Let Baritone move items to the hotbar.").group("Baritone").visibleWhen(showAdvanced::get));
 
     // ---- Baritone: movement ----
     private final BoolSetting allowParkour = add(new BoolSetting("b-allow-parkour", "Allow parkour", false)
-        .description("Allow parkour jumps (can be unreliable).").group("Baritone Movement"));
+        .description("Allow parkour jumps (can be unreliable).").group("Baritone Movement").visibleWhen(showAdvanced::get));
     private final BoolSetting allowParkourPlace = add(new BoolSetting("b-allow-parkour-place", "Allow parkour place", false)
-        .description("Allow placing blocks mid-parkour.").group("Baritone Movement"));
+        .description("Allow placing blocks mid-parkour.").group("Baritone Movement").visibleWhen(showAdvanced::get));
     private final BoolSetting allowDiagonalAscend = add(new BoolSetting("b-allow-diagonal-ascend", "Allow diagonal ascend", false)
-        .description("Allow ascending diagonally.").group("Baritone Movement"));
+        .description("Allow ascending diagonally.").group("Baritone Movement").visibleWhen(showAdvanced::get));
     private final BoolSetting allowDiagonalDescend = add(new BoolSetting("b-allow-diagonal-descend", "Allow diagonal descend", false)
-        .description("Allow descending diagonally (unsafe in the nether).").group("Baritone Movement"));
+        .description("Allow descending diagonally (unsafe in the nether).").group("Baritone Movement").visibleWhen(showAdvanced::get));
     private final BoolSetting allowDownward = add(new BoolSetting("b-allow-downward", "Allow downward mining", true)
-        .description("Allow mining the block directly beneath its feet.").group("Baritone Movement"));
+        .description("Allow mining the block directly beneath its feet.").group("Baritone Movement").visibleWhen(showAdvanced::get));
     private final BoolSetting allowVines = add(new BoolSetting("b-allow-vines", "Allow vines", false)
-        .description("Enable vine pathing (gimmicky, can trap Baritone).").group("Baritone Movement"));
+        .description("Enable vine pathing (gimmicky, can trap Baritone).").group("Baritone Movement").visibleWhen(showAdvanced::get));
     private final BoolSetting assumeStep = add(new BoolSetting("b-assume-step", "Assume step", false)
-        .description("Assume step functionality (don't jump on ascend).").group("Baritone Movement"));
+        .description("Assume step functionality (don't jump on ascend).").group("Baritone Movement").visibleWhen(showAdvanced::get));
     private final BoolSetting sprintAscends = add(new BoolSetting("b-sprint-ascends", "Sprint ascends", true)
-        .description("Sprint and jump a block early on ascends.").group("Baritone Movement"));
+        .description("Sprint and jump a block early on ascends.").group("Baritone Movement").visibleWhen(showAdvanced::get));
     private final BoolSetting freeLook = add(new BoolSetting("b-free-look", "Free look", true)
-        .description("Move without forcing client-sided rotations.").group("Baritone Movement"));
+        .description("Move without forcing client-sided rotations.").group("Baritone Movement").visibleWhen(showAdvanced::get));
     private final BoolSetting antiCheat = add(new BoolSetting("b-anti-cheat", "Anti-cheat compatibility", true)
-        .description("Adjust behavior to work better on anti-cheats.").group("Baritone Movement"));
+        .description("Adjust behavior to work better on anti-cheats.").group("Baritone Movement").visibleWhen(showAdvanced::get));
     private final BoolSetting legitMode = add(new BoolSetting("b-legit-mode", "Legit / smooth movement", true)
         .description("Force a human-looking Baritone profile (free look, clamped reach, slowed/randomized rotations, no render) so it doesn't head-flick. Overrides the render settings above.")
-        .group("Baritone Movement"));
+        .group("Baritone Movement").visibleWhen(showAdvanced::get));
 
     // ---- Baritone: blocks / avoidance ----
     private final BoolSetting avoidUpdatingFalling = add(new BoolSetting("b-avoid-updating-falling", "Avoid updating falling blocks", true)
-        .description("Never trigger cascading sand/gravel falls (helps avoid lava too).").group("Baritone Avoidance"));
+        .description("Never trigger cascading sand/gravel falls (helps avoid lava too).").group("Baritone Avoidance").visibleWhen(showAdvanced::get));
     private final BoolSetting pauseMiningForFalling = add(new BoolSetting("b-pause-mining-falling", "Pause mining for falling blocks", true)
-        .description("Wait until falling blocks settle before continuing.").group("Baritone Avoidance"));
+        .description("Wait until falling blocks settle before continuing.").group("Baritone Avoidance").visibleWhen(showAdvanced::get));
     private final BoolSetting avoidance = add(new BoolSetting("b-avoidance", "Mob avoidance", false)
-        .description("Avoid mobs and spawners (small performance cost).").group("Baritone Avoidance"));
+        .description("Avoid mobs and spawners (small performance cost).").group("Baritone Avoidance").visibleWhen(showAdvanced::get));
     private final IntSetting mobAvoidanceRadius = add(new IntSetting("b-mob-avoid-radius", "Mob avoid radius", 8, 0, 32, 1)
-        .description("Distance to avoid mobs.").group("Baritone Avoidance").visibleWhen(() -> avoidance.get()));
+        .description("Distance to avoid mobs.").group("Baritone Avoidance").visibleWhen(() -> showAdvanced.get() && avoidance.get()));
     private final IntSetting spawnerAvoidanceRadius = add(new IntSetting("b-spawner-avoid-radius", "Spawner avoid radius", 16, 0, 48, 1)
-        .description("Distance to avoid mob spawners.").group("Baritone Avoidance").visibleWhen(() -> avoidance.get()));
+        .description("Distance to avoid mob spawners.").group("Baritone Avoidance").visibleWhen(() -> showAdvanced.get() && avoidance.get()));
 
     // ---- Baritone: falling ----
     private final IntSetting maxFallNoWater = add(new IntSetting("b-max-fall-no-water", "Max fall (no water)", 3, 0, 20, 1)
-        .description("How far Baritone may fall onto solid ground without a water bucket.").group("Baritone Falling"));
+        .description("How far Baritone may fall onto solid ground without a water bucket.").group("Baritone Falling").visibleWhen(showAdvanced::get));
     private final BoolSetting allowWaterBucketFall = add(new BoolSetting("b-allow-water-bucket-fall", "Allow water bucket fall", true)
-        .description("Allow falling arbitrary distances with a water bucket (unreliable).").group("Baritone Falling"));
+        .description("Allow falling arbitrary distances with a water bucket (unreliable).").group("Baritone Falling").visibleWhen(showAdvanced::get));
     private final IntSetting maxFallBucket = add(new IntSetting("b-max-fall-bucket", "Max fall (bucket)", 20, 0, 60, 1)
-        .description("How far Baritone may fall with a water bucket.").group("Baritone Falling").visibleWhen(() -> allowWaterBucketFall.get()));
+        .description("How far Baritone may fall with a water bucket.").group("Baritone Falling").visibleWhen(() -> showAdvanced.get() && allowWaterBucketFall.get()));
 
     // ---- Baritone: render ----
     private final BoolSetting renderPath = add(new BoolSetting("b-render-path", "Render path", true)
-        .description("Render the current path.").group("Baritone Render"));
+        .description("Render the current path.").group("Baritone Render").visibleWhen(showAdvanced::get));
     private final BoolSetting renderGoal = add(new BoolSetting("b-render-goal", "Render goal", true)
-        .description("Render the current goal.").group("Baritone Render"));
+        .description("Render the current goal.").group("Baritone Render").visibleWhen(showAdvanced::get));
     private final BoolSetting renderCachedChunks = add(new BoolSetting("b-render-cached-chunks", "Render cached chunks", false)
-        .description("Render cached chunks semi-transparently (can hurt FPS).").group("Baritone Render"));
+        .description("Render cached chunks semi-transparently (can hurt FPS).").group("Baritone Render").visibleWhen(showAdvanced::get));
 
     // ---- Baritone: elytra ----
     private final BoolSetting elytraAutoJump = add(new BoolSetting("b-elytra-auto-jump", "Elytra auto jump", false)
-        .description("Automatically path to and jump off ledges to start flying.").group("Baritone Elytra"));
+        .description("Automatically path to and jump off ledges to start flying.").group("Baritone Elytra").visibleWhen(showAdvanced::get));
     private final BoolSetting elytraAutoSwap = add(new BoolSetting("b-elytra-auto-swap", "Elytra auto swap", true)
-        .description("Swap to a fresh elytra when durability is low.").group("Baritone Elytra"));
+        .description("Swap to a fresh elytra when durability is low.").group("Baritone Elytra").visibleWhen(showAdvanced::get));
     private final BoolSetting elytraConserveFireworks = add(new BoolSetting("b-elytra-conserve-fireworks", "Conserve fireworks", false)
-        .description("Avoid using fireworks while descending.").group("Baritone Elytra"));
+        .description("Avoid using fireworks while descending.").group("Baritone Elytra").visibleWhen(showAdvanced::get));
     private final IntSetting elytraMinDurability = add(new IntSetting("b-elytra-min-durability", "Elytra min durability", 5, 1, 100, 1)
-        .description("Minimum elytra durability before swapping/landing.").group("Baritone Elytra"));
+        .description("Minimum elytra durability before swapping/landing.").group("Baritone Elytra").visibleWhen(showAdvanced::get));
 
     public DonutRTPStashFinderModule() {
         super(SeedcrackerAddon.ID + ":donut-rtp", "Donut RTP Stash Finder",
@@ -268,8 +273,8 @@ public final class DonutRTPStashFinderModule extends Module {
         AutismClientMessaging.sendPrefixed("§c§l[Warning] §cDonut RTP Stash Finder uses automated RTP/Baritone movement that anti-cheats may flag. Use at your own risk.");
         ClientNotify.warning("RTP Stash Finder: may flag anti-cheat");
         AutismClientMessaging.sendPrefixed("§aDonut RTP Stash Finder enabled. Mode: " + mode.get());
-        if (!BaritoneCompat.isBaritoneAvailable()) {
-            AutismClientMessaging.sendPrefixed("§eBaritone not detected - base-search (dig/mine) disabled; detection still works.");
+        if (!BaritoneCompat.isBaritoneAvailable() && scanMode.get() == ScanMode.BARITONE_MINE) {
+            AutismClientMessaging.sendPrefixed("§eBaritone not detected - using the built-in pathfinder for dig/wander.");
         }
         Minecraft mc = Minecraft.getInstance();
         RtpEnvironmentSnapshot env = buildSnapshot(mc);
@@ -285,6 +290,7 @@ public final class DonutRTPStashFinderModule extends Module {
         stopBaritone();
         Minecraft mc = Minecraft.getInstance();
         if (mc.options != null) waterReleaseKeys(mc);
+        com.autism.seedcracker.motion.RotationEngine.release("rtp-water");
         wandering = false;
         phase = Phase.RTP;
         ACTIVE = false;
@@ -292,6 +298,24 @@ public final class DonutRTPStashFinderModule extends Module {
 
     @Override
     public void onGameLeft() { if (com.autism.seedcracker.util.RelogPersistence.shouldDisableOnGameLeft()) setEnabledSilently(false);
+    }
+
+    @Override
+    public void onGameJoin() {
+        // Relog persistence keeps the module enabled across a reconnect, but the controller's
+        // attempt state belongs to the old world - without a restart it idled forever (A23).
+        if (!isEnabled() || controller == null) return;
+        Minecraft mc = Minecraft.getInstance();
+        mc.execute(() -> {
+            if (!isEnabled() || controller == null) return;
+            phase = Phase.RTP;
+            loggedThisLanding = false;
+            RtpEnvironmentSnapshot env = buildSnapshot(mc);
+            if (env != null) {
+                controller.start(env);
+                AutismClientMessaging.sendPrefixed("§7[RTP] Rejoined - resuming the RTP cycle.");
+            }
+        });
     }
 
     // ------------------------------------------------------------------
@@ -393,10 +417,10 @@ public final class DonutRTPStashFinderModule extends Module {
             waterMineDir = horizontals[WANDER_RNG.nextInt(horizontals.length)];
             waterPlaceAttempts = 0;
             AutismClientMessaging.sendPrefixed("§7Water-mining down to Y=" + waterTargetY.get() + ", then tunneling " + waterMineDir.getName() + "... (raw movement - watch for flags)");
-        } else if (scanMode.get() == ScanMode.BARITONE_MINE && BaritoneCompat.isBaritoneAvailable()) {
+        } else if (scanMode.get() == ScanMode.BARITONE_MINE) {
             applyBaritoneSettings();
             // Dig down to the deepslate level first; tickWander handles the descent until reachedDepth.
-            BaritoneCompat.startBaritoneGoTo(mc, (int) wanderCenterX, digDepth.get(), (int) wanderCenterZ);
+            goTo(mc, (int) wanderCenterX, digDepth.get(), (int) wanderCenterZ);
             AutismClientMessaging.sendPrefixed("§7Digging down to Y=" + digDepth.get() + ", then wandering underground (r=" + wanderRadius.get() + ")...");
         } else {
             AutismClientMessaging.sendPrefixed("§7Searching around " + (int) wanderCenterX + ", " + (int) wanderCenterZ + "...");
@@ -435,11 +459,17 @@ public final class DonutRTPStashFinderModule extends Module {
             waterState = WaterMineState.MINE;
             return;
         }
-        mc.player.setXRot(85f);
+        if (!waterLook(mc, mc.player.getYRot(), 85f)) return;
         mc.options.keyAttack.setDown(true);
         mc.options.keyUp.setDown(false);
         mc.options.keyShift.setDown(false);
         mc.options.keyJump.setDown(false);
+    }
+
+    /** Eased look via the shared engine; false while still turning (or another module owns the view). */
+    private static boolean waterLook(Minecraft mc, float yaw, float pitch) {
+        return com.autism.seedcracker.motion.RotationEngine.request("rtp-water",
+            com.autism.seedcracker.motion.RotationEngine.PRIORITY_INTERACT, yaw, pitch);
     }
 
     /** Straight-line key-input tunnel at the target Y (Water handleAmethystMine). */
@@ -453,9 +483,8 @@ public final class DonutRTPStashFinderModule extends Module {
         BlockPos above = mc.player.blockPosition().above();
         if (mc.level.getBlockState(above).getBlock() instanceof net.minecraft.world.level.block.FallingBlock
             || mc.level.getBlockState(above.above()).getBlock() instanceof net.minecraft.world.level.block.FallingBlock) {
-            mc.player.setXRot(-80f);
-            mc.options.keyAttack.setDown(true);
             mc.options.keyUp.setDown(false);
+            mc.options.keyAttack.setDown(waterLook(mc, mc.player.getYRot(), -80f));
             return;
         }
 
@@ -463,12 +492,11 @@ public final class DonutRTPStashFinderModule extends Module {
         float targetYaw = switch (waterMineDir) {
             case NORTH -> 180f; case SOUTH -> 0f; case WEST -> 90f; case EAST -> 270f; default -> 0f;
         };
-        if (Math.abs(net.minecraft.util.Mth.wrapDegrees(mc.player.getYRot() - targetYaw)) > 5f) {
-            mc.player.setYRot(targetYaw);
-            mc.player.setXRot(0f);
+        if (!waterLook(mc, targetYaw, 0f)) {
+            mc.options.keyUp.setDown(false);
+            mc.options.keyAttack.setDown(false);
             return;
         }
-        mc.player.setXRot(0f);
         mc.options.keyAttack.setDown(true);
         mc.options.keyUp.setDown(true);
         mc.options.keyShift.setDown(false);
@@ -490,7 +518,7 @@ public final class DonutRTPStashFinderModule extends Module {
         var obs = mc.player.getInventory().getItem(oSlot);
         if (obs.is(net.minecraft.world.item.Items.OBSIDIAN) && mc.gameMode != null) {
             com.autism.seedcracker.util.InvSync.select(mc, oSlot);
-            mc.player.setXRot(89f);
+            if (!waterLook(mc, mc.player.getYRot(), 89f)) return;
             BlockPos below = mc.player.blockPosition().below();
             BlockState bs = mc.level.getBlockState(below);
             if (bs.isAir() || !bs.getFluidState().isEmpty()) {
@@ -537,21 +565,27 @@ public final class DonutRTPStashFinderModule extends Module {
 
     private void stopBaritone() {
         try {
-            if (BaritoneCompat.isBaritoneAvailable()) BaritoneCompat.stopBaritone(Minecraft.getInstance());
+            com.autism.seedcracker.motion.Motion.stop(Minecraft.getInstance());
         } catch (Throwable ignored) {}
     }
 
-    /** Descend to the dig depth, then roam random points underground so Baritone mines/covers ground. */
+    /** Baritone when installed, else the built-in pathfinder (allowed to mine, like Baritone's allowBreak). */
+    private boolean goTo(Minecraft mc, int x, int y, int z) {
+        return com.autism.seedcracker.motion.Motion.goTo(mc, new BlockPos(x, y, z),
+            com.autism.seedcracker.motion.Motion.Backend.AUTO, allowBreak.get());
+    }
+
+    /** Descend to the dig depth, then roam random points underground so the pathfinder mines/covers ground. */
     private void tickWander(Minecraft mc) {
-        if (!BaritoneCompat.isBaritoneAvailable()) return;
+        com.autism.seedcracker.motion.Motion.tick(mc);
 
         // Phase 1: get underground first (auto-mine down to the dig depth).
         if (!reachedDepth) {
             if ((int) mc.player.getY() <= digDepth.get()) {
                 reachedDepth = true;
                 applyBaritoneSettings(); // re-enable sprint now that we're at depth
-            } else if (!BaritoneCompat.isBaritoneBusy()) {
-                BaritoneCompat.startBaritoneGoTo(mc, (int) wanderCenterX, digDepth.get(), (int) wanderCenterZ);
+            } else if (!com.autism.seedcracker.motion.Motion.isBusy()) {
+                goTo(mc, (int) wanderCenterX, digDepth.get(), (int) wanderCenterZ);
             }
             return;
         }
@@ -560,7 +594,7 @@ public final class DonutRTPStashFinderModule extends Module {
         double dx = mc.player.getX() - wanderCenterX;
         double dz = mc.player.getZ() - wanderCenterZ;
         double maxR = wanderRadius.get();
-        if (!BaritoneCompat.isBaritoneBusy()) {
+        if (!com.autism.seedcracker.motion.Motion.isBusy()) {
             double tx, tz;
             if (dx * dx + dz * dz > maxR * maxR) {
                 tx = wanderCenterX;
@@ -574,7 +608,7 @@ public final class DonutRTPStashFinderModule extends Module {
             }
             // Stay underground at the dig depth (clamped to the detection Y range).
             int ty = Math.max(minY.get(), Math.min(maxY.get(), digDepth.get()));
-            wandering = BaritoneCompat.startBaritoneGoTo(mc, (int) tx, ty, (int) tz);
+            wandering = goTo(mc, (int) tx, ty, (int) tz);
         }
     }
 
@@ -592,21 +626,33 @@ public final class DonutRTPStashFinderModule extends Module {
     private final Set<Long> loggedBases = new HashSet<>();
     private int ticksUntilScan = 0;
 
-    /** True if pos lies within the structure exclusion radius of a SeedCracker-detected structure. */
-    private boolean insideStructure(BlockPos pos) {
-        if (!skipStructures.get()) return false;
+    /**
+     * Structure positions snapshotted ONCE per scan pass. insideStructure() used to re-run every
+     * active finder's full chunk scan PER STASH BLOCK - in a chest-dense base that was hundreds of
+     * full scans per pass and froze the game (ledger #22).
+     */
+    private List<BlockPos> snapshotStructurePositions() {
+        List<BlockPos> out = new ArrayList<>();
+        if (!skipStructures.get()) return out;
         try {
             kaptainwutax.seedcrackerX.SeedCracker sc = kaptainwutax.seedcrackerX.SeedCracker.get();
-            if (sc == null) return false;
+            if (sc == null) return out;
             kaptainwutax.seedcrackerX.finder.FinderQueue fq = kaptainwutax.seedcrackerX.finder.FinderQueue.get();
-            if (fq == null) return false;
-            double rSq = (double) structureExclusionRadius.get() * structureExclusionRadius.get();
+            if (fq == null) return out;
             for (kaptainwutax.seedcrackerX.finder.Finder finder : fq.finderControl.getActiveFinders()) {
-                for (BlockPos sp : safeFindPositions(finder)) {
-                    if (sp.distSqr(pos) <= rSq) return true;
-                }
+                out.addAll(safeFindPositions(finder));
             }
         } catch (Throwable ignored) {}
+        return out;
+    }
+
+    /** True if pos lies within the structure exclusion radius of any snapshotted structure position. */
+    private boolean insideStructure(BlockPos pos, List<BlockPos> structurePositions) {
+        if (structurePositions.isEmpty()) return false;
+        double rSq = (double) structureExclusionRadius.get() * structureExclusionRadius.get();
+        for (BlockPos sp : structurePositions) {
+            if (sp.distSqr(pos) <= rSq) return true;
+        }
         return false;
     }
 
@@ -630,6 +676,7 @@ public final class DonutRTPStashFinderModule extends Module {
         int hiY = maxY.get();
         int px = (int) mc.player.getX();
         int pz = (int) mc.player.getZ();
+        List<BlockPos> structures = snapshotStructurePositions(); // once per pass, not per block
         BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
         for (int x = px - r; x <= px + r; x++) {
             for (int z = pz - r; z <= pz + r; z++) {
@@ -640,7 +687,7 @@ public final class DonutRTPStashFinderModule extends Module {
                     if (st.isAir()) continue;
                     String id = net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(st.getBlock()).toString();
                     if (!targets.contains(id)) continue;
-                    if (insideStructure(pos)) continue;
+                    if (insideStructure(pos, structures)) continue;
                     found.add(pos.immutable());
                 }
             }

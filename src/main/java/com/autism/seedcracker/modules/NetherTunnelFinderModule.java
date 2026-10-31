@@ -10,10 +10,7 @@ import autismclient.api.module.BoolSetting;
 import autismclient.api.module.ColorSetting;
 import autismclient.api.module.IntSetting;
 import autismclient.modules.Module;
-import autismclient.util.AutismClientMessaging;
-import com.autism.seedcracker.compat.ClientNotify;
 import net.minecraft.client.Minecraft;
-import net.minecraft.sounds.SoundEvents;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.chunk.LevelChunk;
@@ -41,22 +38,26 @@ public final class NetherTunnelFinderModule extends Module {
     private final IntSetting minRunLength = add(new IntSetting("min-run", "Min corridor length", 12, 4, 64, 1)
         .description("Consecutive walkable-air blocks in a straight line needed to count as a tunnel.")
         .group("General"));
-    private final IntSetting minY = add(new IntSetting("min-y", "Min Y", 8, 0, 128, 1)
-        .description("Lowest Y level to scan (nether tunnels are usually near the bedrock ceiling or mid-level).")
-        .group("General"));
-    private final IntSetting maxY = add(new IntSetting("max-y", "Max Y", 118, 8, 127, 1)
-        .description("Highest Y level to scan.").group("General"));
-    private final ColorSetting color = add(new ColorSetting("color", "Chunk colour", 0xFFFF8040)
-        .description("Colour of the flagged chunk marker.").group("Render"));
-    private final BoolSetting tracer = add(new BoolSetting("tracer", "Tracer", false)
-        .description("Draw a tracer line to each flagged chunk.").group("Render"));
     private final BoolSetting notify = add(new BoolSetting("notify", "Notifications", true)
         .description("Toast + chat ping when a tunnel is found.").group("General"));
+    private final ColorSetting color = add(new ColorSetting("color", "Chunk colour", 0xFFFF8040)
+        .description("Colour of the flagged chunk marker.").group("Render"));
+    private final BoolSetting showAdvanced = add(new BoolSetting("advanced", "Show advanced", false)
+        .description("Reveal Y range, scan rate and tracer.").group("General"));
+    private final IntSetting minY = add(new IntSetting("min-y", "Min Y", 8, 0, 128, 1)
+        .description("Lowest Y level to scan (nether tunnels are usually near the bedrock ceiling or mid-level).")
+        .group("Advanced").visibleWhen(showAdvanced::get));
+    private final IntSetting maxY = add(new IntSetting("max-y", "Max Y", 118, 8, 127, 1)
+        .description("Highest Y level to scan.").group("Advanced").visibleWhen(showAdvanced::get));
+    private final BoolSetting tracer = add(new BoolSetting("tracer", "Tracer", false)
+        .description("Draw a tracer line to each flagged chunk.").group("Render").visibleWhen(showAdvanced::get));
     private final IntSetting chunksPerTick = add(new IntSetting("chunks-per-tick", "Chunks per tick", 1, 1, 32, 1)
-        .description("How many chunks to scan per tick. 1 = smoothest FPS, higher = faster full sweep.").group("Performance"));
+        .description("How many chunks to scan per tick. 1 = smoothest FPS, higher = faster full sweep.").group("Performance").visibleWhen(showAdvanced::get));
     private final com.autism.seedcracker.finder.ScanCursor scanCursor = new com.autism.seedcracker.finder.ScanCursor();
 
     private final Set<ChunkPos> flagged = new HashSet<>();
+    private final com.autism.seedcracker.finder.FinderReport reporter =
+        new com.autism.seedcracker.finder.FinderReport("Tunnel", 50);
     private final Set<ChunkPos> notified = new HashSet<>();
     private int tickCounter = 0;
 
@@ -90,6 +91,7 @@ public final class NetherTunnelFinderModule extends Module {
         if (mc.level == null || mc.player == null) return;
         scan(mc);
         ChunkFlagRenderer.feed(SeedcrackerAddon.ID + ":nether-tunnel-finder", flagged, color.get(), tracer.get());
+        reporter.tick(mc, flagged);
     }
 
     private void scan(Minecraft mc) {
@@ -117,8 +119,9 @@ public final class NetherTunnelFinderModule extends Module {
         int baseX = pos.getMinBlockX();
         int baseZ = pos.getMinBlockZ();
         int run = sensitivity.get().scale(minRunLength.get());
-        int y0 = minY.get();
-        int y1 = maxY.get();
+        // Clamp: the min-y slider max exceeds max-y's, and an inverted range silently scanned nothing.
+        int y0 = Math.min(minY.get(), maxY.get());
+        int y1 = Math.max(minY.get(), maxY.get());
         LevelChunkSection[] sections = chunk.getSections();
         int minYWorld = mc.level.getMinY();
 
@@ -132,7 +135,7 @@ public final class NetherTunnelFinderModule extends Module {
             for (int z = 0; z < 16; z++) {
                 int streak = 0;
                 for (int x = 0; x < 16; x++) {
-                    if (isWalkable(sec, x, ly, z)) { if (++streak >= run) return true; }
+                    if (isWalkable(sections, secIdx, x, ly, z)) { if (++streak >= run) return true; }
                     else streak = 0;
                 }
             }
@@ -140,7 +143,7 @@ public final class NetherTunnelFinderModule extends Module {
             for (int x = 0; x < 16; x++) {
                 int streak = 0;
                 for (int z = 0; z < 16; z++) {
-                    if (isWalkable(sec, x, ly, z)) { if (++streak >= run) return true; }
+                    if (isWalkable(sections, secIdx, x, ly, z)) { if (++streak >= run) return true; }
                     else streak = 0;
                 }
             }
@@ -148,28 +151,38 @@ public final class NetherTunnelFinderModule extends Module {
         return false;
     }
 
-    /** 2-high air with a solid (non-fluid) floor = a walkable corridor block. */
-    private boolean isWalkable(LevelChunkSection sec, int x, int ly, int z) {
+    /** 2-high air with a solid (non-fluid) floor = a walkable corridor block. Head/floor reads
+     * cross into the neighbouring section - skipping them at ly 0/15 false-flagged every section
+     * boundary (Y multiples of 16). */
+    private boolean isWalkable(LevelChunkSection[] sections, int secIdx, int x, int ly, int z) {
+        LevelChunkSection sec = sections[secIdx];
         if (!sec.getBlockState(x, ly, z).isAir()) return false;
-        // head room
+        // head room (crosses up into the next section at ly 15)
         if (ly + 1 < 16) {
             if (!sec.getBlockState(x, ly + 1, z).isAir()) return false;
+        } else if (secIdx + 1 < sections.length && sections[secIdx + 1] != null) {
+            if (!sections[secIdx + 1].getBlockState(x, 0, z).isAir()) return false;
         }
-        // floor below must be solid (or at least present and not fluid)
+        // floor below must be solid (crosses down into the previous section at ly 0)
+        net.minecraft.world.level.block.state.BlockState floor = null;
         if (ly - 1 >= 0) {
-            var floor = sec.getBlockState(x, ly - 1, z);
-            if (floor.isAir() || !floor.getFluidState().isEmpty()) return false;
+            floor = sec.getBlockState(x, ly - 1, z);
+        } else if (secIdx - 1 >= 0 && sections[secIdx - 1] != null) {
+            floor = sections[secIdx - 1].getBlockState(x, 15, z);
         }
+        if (floor == null || floor.isAir() || !floor.getFluidState().isEmpty()) return false;
         return true;
     }
 
     private void onNewFlag(ChunkPos pos) {
         if (!notify.get()) return;
-        String msg = "Nether tunnel at X:" + pos.getMinBlockX() + " Z:" + pos.getMinBlockZ();
-        ClientNotify.warning(msg);
-        AutismClientMessaging.sendPrefixed("§6[NetherTunnel] §f" + msg);
-        Minecraft mc = Minecraft.getInstance();
-        if (mc.player != null) mc.player.playSound(SoundEvents.EXPERIENCE_ORB_PICKUP, 1.0f, 1.0f);
+        com.autism.seedcracker.finder.FinderNotify.flag("§6[NetherTunnel]",
+            "Nether tunnel at X:" + pos.getMinBlockX() + " Z:" + pos.getMinBlockZ(), true);
+    }
+
+    @Override
+    public String info() {
+        return flagged.isEmpty() ? "" : flagged.size() + " flagged";
     }
 
     private static boolean tooFar(ChunkPos a, ChunkPos b, int radius) {

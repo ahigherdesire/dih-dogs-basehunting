@@ -124,6 +124,7 @@ public final class StashFinderModule extends Module {
         flagged.clear();
         notified.clear();
         tickCounter = 0;
+        reporter.clear();
     }
 
     @Override
@@ -132,6 +133,7 @@ public final class StashFinderModule extends Module {
         if ("mode".equals(settingId) || "sensitivity".equals(settingId)) {
             flagged.clear();
             notified.clear();
+            reporter.clear();
         }
     }
 
@@ -139,6 +141,7 @@ public final class StashFinderModule extends Module {
     public void onDisable() {
         flagged.clear();
         notified.clear();
+        reporter.clear();
         ChunkFlagRenderer.clear(SeedcrackerAddon.ID + ":z-stash-finder");
     }
 
@@ -162,16 +165,10 @@ public final class StashFinderModule extends Module {
         // Feed the renderer every tick so markers stay alive.
         ChunkFlagRenderer.feed(SeedcrackerAddon.ID + ":z-stash-finder", flagged, color.get(), tracer.get());
 
-        // Report flagged chunks to the Base Tracker HUD (with confidence) for the merged view.
-        for (ChunkPos pos : flagged) {
-            int conf = 50;
-            LevelChunk chunk = mc.level.hasChunk(pos.x(), pos.z()) ? mc.level.getChunk(pos.x(), pos.z()) : null;
-            if (chunk != null) {
-                conf = com.autism.seedcracker.finder.BaseConfidence.score(chunk).score();
-            }
-            com.autism.seedcracker.finder.BaseTracker.report(pos.getMinBlockX() + 8, pos.getMinBlockZ() + 8, conf, "Stash");
-        }
+        reporter.tick(mc, flagged);
     }
+
+    private final com.autism.seedcracker.finder.FinderReport reporter = new com.autism.seedcracker.finder.FinderReport("Stash", 0);
 
     private void scan(Minecraft mc) {
         ChunkPos playerChunk = mc.player.chunkPosition();
@@ -516,4 +513,8 @@ public final class StashFinderModule extends Module {
             }
         }
     }
-}
+
+    @Override
+    public String info() {
+        return flagged.isEmpty() ? "" : flagged.size() + " flagged";
+    }}

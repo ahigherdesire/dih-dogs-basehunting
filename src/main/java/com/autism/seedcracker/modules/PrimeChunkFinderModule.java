@@ -1,185 +1,73 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Native port of Spectre PrimeChunkFinderModule, d5a7dd3de0be67bea273d4ed74d2c76c11e0f6da.
 package com.autism.seedcracker.modules;
-
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 
 import com.autism.seedcracker.SeedcrackerAddon;
 import com.autism.seedcracker.finder.ChunkFlagRenderer;
-
+import com.autism.seedcracker.finder.FinderNotify;
+import com.autism.seedcracker.finder.FinderReport;
+import com.autism.seedcracker.spectre.chunks.PrimeTracker;
 import autismclient.api.module.BoolSetting;
 import autismclient.api.module.ColorSetting;
 import autismclient.api.module.IntSetting;
 import autismclient.modules.Module;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
-import net.minecraft.world.level.ChunkPos;
-import net.minecraft.world.level.chunk.LevelChunk;
-import net.minecraft.world.level.chunk.LevelChunkSection;
-import net.minecraft.world.level.material.FluidState;
+import net.minecraft.network.protocol.Packet;
+import net.minecraft.world.level.block.state.BlockState;
 
-/**
- * Prime Chunk Finder.
- *
- * Fluid-flow chunk fingerprinting (a port of Meteor's NewChunks via the CodeEngine
- * "PrimeChunkFinderModule"). Flags chunks that contain flowing (non-still) water/lava with
- * no adjacent still-fluid source — a stranded-flow signature left by past player activity
- * (placed/removed fluid, explosions, etc.). Chunks near world spawn are ignored.
- *
- * Ported to the AUTISM API (Mojang 26.2); flagged chunks are drawn with ChunkFlagRenderer.
- */
 public final class PrimeChunkFinderModule extends Module {
-
-    private final IntSetting sensitivity = add(new IntSetting("sensitivity", "Sensitivity", 40, 0, 100, 1)
-        .description("Higher values flag weaker fluid-flow evidence. At 40, chunk-border flows are ignored; low values also ignore surface flows and require more evidence.")
-        .group("Detect"));
-    private final IntSetting minDistance = add(new IntSetting("min-distance", "Min distance from spawn", 200, 0, 10000, 50)
-        .description("Ignore chunks closer than this to 0,0.").group("Detect"));
-    private final IntSetting threshold = add(new IntSetting("threshold", "Flow blocks threshold", 1, 1, 64, 1)
-        .description("Stranded flowing-fluid blocks needed to flag a chunk (LOW sensitivity doubles this).").group("Detect"));
-    private final IntSetting range = add(new IntSetting("range", "Range (chunks)", 8, 1, 16, 1)
-        .description("Chunk radius around you to scan.").group("Detect"));
-    private final ColorSetting color = add(new ColorSetting("color", "Colour", 0xFFFFB030)
-        .description("Highlight colour for flagged chunks.").group("Render"));
-    private final BoolSetting tracer = add(new BoolSetting("tracer", "Tracer", true)
-        .description("Draw a line to the nearest flagged chunk.").group("Render"));
-
-    private static final int[][] NEIGHBOURS = {{1,0,0},{-1,0,0},{0,1,0},{0,-1,0},{0,0,1},{0,0,-1}};
-
-    private final Set<Long> flagged = ConcurrentHashMap.newKeySet();
-    private final Set<Long> scanned = ConcurrentHashMap.newKeySet();
-    private int cursor = 0;
-    private int lastSensitivity = -1;
+    private final IntSetting range = add(new IntSetting("range", "Initial snapshot radius", 32, 1, 32, 1).group("Detect"));
+    private final BoolSetting notifications = add(new BoolSetting("notification", "Notification", true).group("Alerts"));
+    private final BoolSetting sound = add(new BoolSetting("sound", "Sound", true).group("Alerts").visibleWhen(notifications::get));
+    private final ColorSetting color = add(new ColorSetting("color", "Colour", 0xFFFFB030).group("Render"));
+    private final BoolSetting tracer = add(new BoolSetting("tracer", "Tracer", true).group("Render"));
+    private final FinderReport reporter = new FinderReport("Prime", 55);
+    private final PrimeTracker tracker = new PrimeTracker(pos -> {
+        if (notifications.get()) FinderNotify.flag("[Prime Finder]", "Underground change hypothesis at X:" + pos.getX() + " Y:" + pos.getY() + " Z:" + pos.getZ(), sound.get());
+    });
+    private ClientLevel world;
 
     public PrimeChunkFinderModule() {
         super(SeedcrackerAddon.ID + ":prime-chunk-finder", "Prime Chunk Finder",
-            "Flags chunks with stranded fluid-flow signatures of past player activity.");
+            "Spectre unexplained light and redstone changes below Y 0; excludes visited chunks and known light sources.");
     }
-
-    @Override
-    public void onEnable() {
-        ChunkFlagRenderer.init();
-        flagged.clear();
-        scanned.clear();
-        cursor = 0;
+    private void clear(ClientLevel level) { tracker.reset(level); reporter.clear(); ChunkFlagRenderer.clear(id()); world = level; }
+    @Override public void onEnable() {
+        var mc = Minecraft.getInstance(); clear(mc.level); ChunkFlagRenderer.init();
+        if (mc.player != null && mc.player.getY() >= 0) {
+            FinderNotify.flag("[Prime Finder]", "Go below Y 0 before enabling Prime detection.", false);
+            clear(null); setEnabledSilently(false);
+        }
     }
-
-    @Override
-    public void onDisable() {
-        flagged.clear();
-        scanned.clear();
-        ChunkFlagRenderer.clear(SeedcrackerAddon.ID + ":prime-chunk-finder");
+    @Override public void onDisable() { clear(null); }
+    @Override protected void onSettingsReset() { clear(isEnabled() ? Minecraft.getInstance().level : null); }
+    @Override public void onGameLeft() {
+        clear(null);
+        if (com.autism.seedcracker.util.RelogPersistence.shouldDisableOnGameLeft()) setEnabledSilently(false);
     }
-
-    @Override
-    public void onGameLeft() { if (com.autism.seedcracker.util.RelogPersistence.shouldDisableOnGameLeft()) setEnabledSilently(false);
-    }
-
-    @Override
-    public void tick() {
-        Minecraft mc = Minecraft.getInstance();
+    @Override public void tick() {
+        var mc = Minecraft.getInstance();
+        if (world != mc.level) clear(mc.level);
+        var shown = tracker.tick(mc, range.get());
         if (mc.level == null || mc.player == null) return;
-
-        // Sensitivity changed: rescan everything under the new rules.
-        if (lastSensitivity != sensitivity.get()) {
-            lastSensitivity = sensitivity.get();
-            scanned.clear();
-            flagged.clear();
-        }
-
-        int r = range.get();
-        ChunkPos centre = mc.player.chunkPosition();
-        int side = r * 2 + 1;
-        int total = side * side;
-        for (int i = 0; i < 4; i++) {
-            int idx = cursor % total;
-            cursor = (cursor + 1) % total;
-            int dx = idx % side - r;
-            int dz = idx / side - r;
-            int cx = centre.x() + dx, cz = centre.z() + dz;
-            if (!mc.level.hasChunk(cx, cz)) continue;
-            scan(mc.level.getChunk(cx, cz));
-        }
-
-        // Prune out-of-range flags.
-        int pr = r + 2;
-        flagged.removeIf(key -> {
-            int kx = (int) (key >> 32);
-            int kz = (int) (key & 0xffffffffL);
-            return Math.abs(kx - centre.x()) > pr || Math.abs(kz - centre.z()) > pr;
-        });
-
-        Set<ChunkPos> chunks = new java.util.HashSet<>();
-        for (long key : flagged) {
-            int kx = (int) (key >> 32);
-            int kz = (int) (key & 0xffffffffL);
-            chunks.add(new ChunkPos(kx, kz));
-        }
-        ChunkFlagRenderer.feed(SeedcrackerAddon.ID + ":prime-chunk-finder", chunks, color.get(), tracer.get());
+        ChunkFlagRenderer.feed(id(), shown, color.get(), tracer.get()); reporter.tick(mc, shown);
     }
 
-    private void scan(LevelChunk chunk) {
-        if (chunk == null) return;
-        ChunkPos pos = chunk.getPos();
-        long key = ((long) pos.x() << 32) | (pos.z() & 0xffffffffL);
-        if (!scanned.add(key)) return;
-
-        long cx = ((long) pos.x() << 4) + 8L;
-        long cz = ((long) pos.z() << 4) + 8L;
-        long min = minDistance.get();
-        if (cx * cx + cz * cz < min * min) return;
-
-        LevelChunkSection[] sections = chunk.getSections();
-        if (sections == null || sections.length == 0) return;
-
-        int sensitivityValue = sensitivity.get();
-        // 40 is the medium profile: border flows are ignored and the configured threshold is
-        // unchanged. Higher values widen the detector; lower values suppress natural surface flow
-        // and require additional evidence.
-        int need = Math.max(1, (int) Math.ceil(threshold.get() * (1.4 - sensitivityValue / 100.0)));
-        boolean skipBorder = sensitivityValue < 60;
-        int maxSurfaceY = sensitivityValue < 20 ? 50 : Integer.MAX_VALUE;
-        int minSectionY = chunk.getMinSectionY();
-
-        int count = 0;
-        for (int s = 0; s < sections.length; s++) {
-            LevelChunkSection sec = sections[s];
-            if (sec == null || sec.hasOnlyAir()) continue;
-            int sectionBaseY = (minSectionY + s) << 4;
-            for (int y = 0; y < 16; y++) {
-                if (sectionBaseY + y > maxSurfaceY) break;
-                for (int x = 0; x < 16; x++) {
-                    for (int z = 0; z < 16; z++) {
-                        if (skipBorder && (x == 0 || x == 15 || z == 0 || z == 15)) continue;
-                        FluidState fluid = sec.getBlockState(x, y, z).getFluidState();
-                        if (!fluid.isEmpty() && !fluid.isSource() && !hasStillNeighbour(sections, s, x, y, z)) {
-                            if (++count >= need) {
-                                flagged.add(key);
-                                return;
-                            }
-                        }
-                    }
-                }
-            }
-        }
+    /** ClientPacketListener TAIL: chunk-with-light, light-update and forget-chunk packets. */
+    public void onPacketApplied(ClientLevel level, Packet<?> packet) {
+        if (!isEnabled() || !Minecraft.getInstance().isSameThread() || level != Minecraft.getInstance().level) return;
+        if (world != level) clear(level);
+        tracker.applied(level, packet);
     }
 
-    /** True if any 6-neighbour (crossing section borders) holds still/source fluid. */
-    private static boolean hasStillNeighbour(LevelChunkSection[] sections, int s, int x, int y, int z) {
-        for (int[] n : NEIGHBOURS) {
-            int nx = x + n[0];
-            int ny = y + n[1];
-            int nz = z + n[2];
-            if (nx < 0 || nx > 15 || nz < 0 || nz > 15) continue;
-            int sec = s;
-            if (ny < 0) { sec = s - 1; ny = 15; }
-            else if (ny > 15) { sec = s + 1; ny = 0; }
-            if (sec < 0 || sec >= sections.length) continue;
-            LevelChunkSection nsec = sections[sec];
-            if (nsec == null || nsec.hasOnlyAir()) continue;
-            FluidState nf = nsec.getBlockState(nx, ny, nz).getFluidState();
-            if (!nf.isEmpty() && nf.isSource()) return true;
-        }
-        return false;
+    /** Existing ClientLevelMixin HEAD hook preserves the previous state before vanilla replaces it. */
+    public void onBlockChange(ClientLevel level, BlockPos pos, BlockState previous, BlockState incoming) {
+        var mc = Minecraft.getInstance();
+        if (!isEnabled() || !mc.isSameThread() || level == null || level != mc.level) return;
+        if (world != level) clear(level);
+        tracker.blockChange(level, pos, previous, incoming);
     }
+    @Override public String info() { return tracker.size() + " change candidates"; }
 }
