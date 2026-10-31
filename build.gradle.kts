@@ -7,8 +7,8 @@ plugins {
 // run `gradlew publishToMavenLocal` in the DIH checkout for that Minecraft version first).
 data class Target(val minecraft: String, val loader: String, val fabricApi: String, val cloth: String, val dih: String)
 val targets = mapOf(
-    "26.2" to Target("26.2", "0.19.3", "0.152.2+26.2", "26.2.155", "5.0.1-26.2-dev"),
-    "26.3" to Target("26.3", "0.19.5", "0.161.0+26.3", "26.3.159", "5.0.1-26.3-dev"),
+    "26.2" to Target("26.2", "0.19.3", "0.152.2+26.2", "26.2.155", "5.1-beta.7g.3-26.2-dev"),
+    "26.3" to Target("26.3", "0.19.5", "0.161.0+26.3", "26.3.159", "5.1-beta.7g.3-26.3-dev"),
 )
 val target = targets[(findProperty("mc") as String?) ?: "26.2"] ?: error("Unknown -Pmc, use one of ${targets.keys}")
 val dihVersion = (findProperty("dih") as String?) ?: target.dih
@@ -26,8 +26,20 @@ val dihVersion = (findProperty("dih") as String?) ?: target.dih
 // (the 26.2 block becomes blank lines, so line numbers in stack traces still match) plus the renames below.
 val mcReplacements = mapOf(
     "26.3" to mapOf(
-        "net.minecraft.client.renderer.rendertype.DihRenderTypes" to "dihclient.render.mc.DihRenderTypes",
         "RedStoneWireBlock" to "RedstoneWireBlock",
+        "chunk.getX()" to "chunk.x()", "chunk.getZ()" to "chunk.z()",
+        "light.getX()" to "light.x()", "light.getZ()" to "light.z()",
+        ".getLightData()" to ".lightData()", ".getChunkData()" to ".chunkData()",
+        ".getBlockYMask()" to ".blockYMask()", ".getEmptyBlockYMask()" to ".emptyBlockYMask()",
+        ".getBlockUpdates()" to ".blockUpdates()", ".getSkyYMask()" to ".skyYMask()",
+        ".getEmptySkyYMask()" to ".emptySkyYMask()", ".getSkyUpdates()" to ".skyUpdates()",
+        "useOn.getHitResult()" to "useOn.hitResult()", "useOn.getHand()" to "useOn.hand()",
+        "particles.getParticle()" to "particles.particle()", "particles.getX()" to "particles.x()",
+        "particles.getY()" to "particles.y()", "particles.getZ()" to "particles.z()",
+        "ServerboundSwingPacket" to "ServerboundPunchPacket",
+        ".getBlockEntitiesTagsConsumer(chunk.x(), chunk.z()).accept(" to ".forEachBlockEntityTag(chunk.x(), chunk.z(), ",
+        "front.getMessage(i, false)" to "front.getMessages(false).get(i)",
+        "net.minecraft.world.entity.monster.EnderMan" to "net.minecraft.world.entity.monster.Enderman",
         "VanillaRegistries.createLookup()" to "VanillaRegistries.createWorldLookup()",
     ),
 )
@@ -64,7 +76,8 @@ val preprocessSources by tasks.registering {
     doLast {
         val out = preprocessedDir.get().asFile
         out.deleteRecursively()
-        src.walkTopDown().filter { it.isFile }.forEach { f ->
+        // Seed-aware Chunk Finder: 26.3 reworked worldgen, so only AdvancedScanner's stub is built there.
+        src.walkTopDown().filter { it.isFile && !(it.invariantSeparatorsPath.contains("/chunks/seedscan/") && it.name != "AdvancedScanner.java") }.forEach { f ->
             val dest = out.resolve(f.relativeTo(src))
             dest.parentFile.mkdirs()
             if (f.extension == "java") dest.writeText(preprocess(f.readText(), target.minecraft)) else f.copyTo(dest)
@@ -112,6 +125,7 @@ dependencies {
     val dihJar = findProperty("dihJar") as String?
     if (dihJar != null) {
         compileOnly(files(dihJar))
+        testImplementation(files(dihJar))
     } else {
         implementation("com.dihclient:dih:$dihVersion") { isTransitive = false }
     }
@@ -155,7 +169,7 @@ dependencies {
     implementation(latticg)
     include(latticg)
 
-    // Unit tests (pure-logic classes only - no Minecraft bootstrap in tests).
+    // Mostly pure unit tests, plus a small item-lore bootstrap regression.
     testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
@@ -181,7 +195,7 @@ tasks {
             "mc_compat" to toMinecraftCompat(target.minecraft),
             "fabric_api_version" to target.fabricApi,
             // DIH's own apiVersion() handshake gates real API compatibility.
-            "dih_api_version" to ">=5.0.0"
+            "dih_api_version" to ">=5.1.0-beta"
         )
         inputs.properties(propertyMap)
         filteringCharset = "UTF-8"

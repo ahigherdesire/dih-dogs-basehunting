@@ -76,45 +76,53 @@ public final class SchematicBuilderModule extends Module {
     private final EnumSetting<BuildOrder> buildOrder = add(new EnumSetting<>("build-order", "Build order", BuildOrder.ADAPTIVE, BuildOrder.values())
         .description("ADAPTIVE = advance at 95% of a layer (skips unreachable spots, faster). LAYERED = strict printer: a layer must be 100% placed before the next starts (keeps retrying misses).")
         .group("Build"));
-    private final IntSetting placeDelay = add(new IntSetting("place-delay", "Place delay (ticks)", 2, 0, 20, 1)
-        .description("Ticks to wait between block placements.").group("Build"));
-    private final IntSetting rotationSteps = add(new IntSetting("rotation", "Rotate schematic", 0, 0, 3, 1)
-        .description("Rotate the whole schematic 0/90/180/270 degrees.").group("Build"));
-    private final BoolSetting silentPlace = add(new BoolSetting("silent-place", "Silent rotation", false)
-        .description("Face placement via movement packets (camera stays). OFF eases the real camera (recommended - the crosshair must be on the block to place).")
-        .group("Build"));
-    public enum AimStyle { LEGIT, WIND_GRAVITY }
-    private final EnumSetting<AimStyle> aimStyle = add(new EnumSetting<>("aim-style", "Aim style", AimStyle.WIND_GRAVITY, AimStyle.values())
-        .description("Placement aim easing. LEGIT = time-eased human mouse. WIND_GRAVITY = wocky AdvancedRotationModel (velocity + gust + gravity, most human).")
-        .group("Build"));
     private final BoolSetting renderGhost = add(new BoolSetting("render-ghost", "Ghost preview", true)
         .description("Render the layer-by-layer ghost boxes.").group("Render"));
-    private final ColorSetting placedColor = add(new ColorSetting("placed-color", "Placed colour", 0x6400FF00).group("Render"));
-    private final ColorSetting currentColor = add(new ColorSetting("current-color", "Current layer colour", 0x9600FFFF).group("Render"));
-    private final ColorSetting missedColor = add(new ColorSetting("missed-color", "Missed colour", 0x78FF0000).group("Render"));
-    private final ColorSetting futureColor = add(new ColorSetting("future-color", "Future colour", 0x40808080).group("Render"));
-    private final BoolSetting pathfind = add(new BoolSetting("pathfind", "A* pathfinding", true)
-        .description("Walk around obstacles to reach blocks (straight-line walk when off).").group("Build"));
-    private final BoolSetting legitWalk = add(new BoolSetting("legit-walk", "Legit walk (key-press)", true)
-        .description("Walk by pressing real movement keys (nyx HumanMotionSim) with ledge/fall-hazard stop - most legit, no velocity/packet edits.")
-        .group("Build"));
-    private final BoolSetting scaffold = add(new BoolSetting("scaffold", "Scaffold bridging", true)
-        .description("Place temporary blocks to bridge gaps / reach high spots while building.").group("Build"));
     private final BoolSetting restock = add(new BoolSetting("restock", "Chest restock", false)
         .description("OPTIONAL: when a needed block is missing, open a nearby chest/barrel/shulker/ender-chest and take it, then resume.")
         .group("Restock"));
-    private final BoolSetting clearBlocks = add(new BoolSetting("clear-blocks", "Mine out wrong blocks", true)
-        .description("Mine out blocks occupying schematic spots (where it wants air or a different block) before placing.")
-        .group("Build"));
-    private final BoolSetting autoTool = add(new BoolSetting("auto-tool", "Auto tool swap", true)
-        .description("Swap to the best hotbar tool when mining out a block (faster clearing).")
-        .group("Build"));
     private final IntSetting chestRange = add(new IntSetting("chest-range", "Chest range", 12, 4, 32, 1)
         .description("How far (blocks) to search for a chest with the needed block.")
         .group("Restock").visibleWhen(() -> restock.get()));
     private final IntSetting chestDelay = add(new IntSetting("chest-delay", "Chest action delay", 4, 0, 20, 1)
         .description("Ticks between opening / taking from a chest.")
         .group("Restock").visibleWhen(() -> restock.get()));
+
+    // Everything below is expert tuning - the defaults are the recommended behaviour.
+    private final BoolSetting showAdvanced = add(new BoolSetting("advanced", "Show advanced", false)
+        .description("Reveal placement timing, aim/walk styles, scaffold/mining toggles, ghost colours and debug.")
+        .group("Build"));
+    private final IntSetting placeDelay = add(new IntSetting("place-delay", "Place delay (ticks)", 2, 0, 20, 1)
+        .description("Ticks to wait between block placements.").group("Build").visibleWhen(showAdvanced::get));
+    private final IntSetting rotationSteps = add(new IntSetting("rotation", "Rotate schematic", 0, 0, 3, 1)
+        .description("Rotate the whole schematic 0/90/180/270 degrees.").group("Build").visibleWhen(showAdvanced::get));
+    private final BoolSetting silentPlace = add(new BoolSetting("silent-place", "Silent rotation", false)
+        .description("Face placement via movement packets (camera stays). OFF eases the real camera (recommended - the crosshair must be on the block to place).")
+        .group("Build").visibleWhen(showAdvanced::get));
+    public enum AimStyle { LEGIT, WIND_GRAVITY }
+    private final EnumSetting<AimStyle> aimStyle = add(new EnumSetting<>("aim-style", "Aim style", AimStyle.WIND_GRAVITY, AimStyle.values())
+        .description("Placement aim easing. LEGIT = time-eased human mouse. WIND_GRAVITY = wocky AdvancedRotationModel (velocity + gust + gravity, most human).")
+        .group("Build").visibleWhen(showAdvanced::get));
+    private final ColorSetting placedColor = add(new ColorSetting("placed-color", "Placed colour", 0x6400FF00).group("Render").visibleWhen(showAdvanced::get));
+    private final ColorSetting currentColor = add(new ColorSetting("current-color", "Current layer colour", 0x9600FFFF).group("Render").visibleWhen(showAdvanced::get));
+    private final ColorSetting missedColor = add(new ColorSetting("missed-color", "Missed colour", 0x78FF0000).group("Render").visibleWhen(showAdvanced::get));
+    private final ColorSetting futureColor = add(new ColorSetting("future-color", "Future colour", 0x40808080).group("Render").visibleWhen(showAdvanced::get));
+    private final BoolSetting pathfind = add(new BoolSetting("pathfind", "A* pathfinding", true)
+        .description("Walk around obstacles to reach blocks (straight-line walk when off).").group("Build").visibleWhen(showAdvanced::get));
+    private final BoolSetting legitWalk = add(new BoolSetting("legit-walk", "Legit walk (key-press)", true)
+        .description("Walk by pressing real movement keys (nyx HumanMotionSim) with ledge/fall-hazard stop - most legit, no velocity/packet edits.")
+        .group("Build").visibleWhen(showAdvanced::get));
+    private final BoolSetting scaffold = add(new BoolSetting("scaffold", "Scaffold bridging", true)
+        .description("Place temporary blocks to bridge gaps / reach high spots while building.").group("Build").visibleWhen(showAdvanced::get));
+    private final BoolSetting clearBlocks = add(new BoolSetting("clear-blocks", "Mine out wrong blocks", true)
+        .description("Mine out blocks occupying schematic spots (where it wants air or a different block) before placing.")
+        .group("Build").visibleWhen(showAdvanced::get));
+    private final BoolSetting autoTool = add(new BoolSetting("auto-tool", "Auto tool swap", true)
+        .description("Swap to the best hotbar tool when mining out a block (faster clearing).")
+        .group("Build").visibleWhen(showAdvanced::get));
+    private final BoolSetting debug = add(new BoolSetting("debug", "Debug tracing", false)
+        .description("Trace layer/task/restock/verify transitions to chat + /flaglog (diagnose stalls).")
+        .group("Build").visibleWhen(showAdvanced::get));
 
     // ---- state ----
     private final Map<BlockPos, BlockState> schematic = new HashMap<>();
@@ -134,6 +142,10 @@ public final class SchematicBuilderModule extends Module {
     private int pendingSlot = -1;
     private BlockHitResult pendingHit = null;
     private boolean pendingSneak = false;
+    /** Placement awaiting server confirmation: pos + ticks left to see the block appear. */
+    private BlockPos verifyPos = null;
+    private int verifyTicks = 0;
+    private int verifyRetries = 0;
     private boolean faceScanFailureLogged = false;
 
     // pathfinding + scaffold
@@ -159,6 +171,7 @@ public final class SchematicBuilderModule extends Module {
     @Override
     public void onEnable() {
         look.reset();
+        driving = false;
         placeCooldown = 0;
         stuck.reset();
     }
@@ -205,7 +218,17 @@ public final class SchematicBuilderModule extends Module {
 
         if (renderGhost.get() && loaded && origin != null) renderGhost(mc);
 
-        if (!build.get() || !loaded || origin == null) return;
+        if (!build.get() || !loaded || origin == null) {
+            pauseDriving();
+            stuck.reset();
+            return;
+        }
+
+        com.autism.seedcracker.util.DebugProbe.setEnabled(id(), debug.get());
+        com.autism.seedcracker.util.DebugProbe.traceChange(id(), "state",
+            "layer=" + currentLayer + " task=" + layerIndex + "/" + layerTasks.size()
+                + " restock=" + restockState + (verifyPos != null ? " verify=" + verifyPos.toShortString() : "")
+                + (scaffoldTarget != null ? " scaffold" : ""));
 
         // Restock runs even while a container GUI is open (it needs the chest screen). When the
         // restock machine is active it owns the tick; the normal build is paused.
@@ -213,12 +236,17 @@ public final class SchematicBuilderModule extends Module {
             tickRestock(mc);
             return;
         }
-        if (mc.gui.screen() != null) return; // don't build while a GUI is open
+        if (mc.gui.screen() != null) {
+            pauseDriving();
+            stuck.reset();
+            return;
+        }
         // No place/dig packets within the container grace window.
         if (com.autism.seedcracker.util.ContainerMutex.containerBusy(mc)) {
             com.autism.seedcracker.util.tunnel.HumanMotionSim.releaseAll();
             return;
         }
+        driving = true;
         tickBuild(mc);
 
         // Stuck detector: only meaningful while walking to a target (building in place is fine).
@@ -229,6 +257,14 @@ public final class SchematicBuilderModule extends Module {
         } else {
             stuck.reset();
         }
+    }
+
+    private boolean driving;
+
+    private void pauseDriving() {
+        if (!driving) return;
+        driving = false;
+        com.autism.seedcracker.util.tunnel.HumanMotionSim.releaseAll();
     }
 
     // ---- origin ----
@@ -262,7 +298,7 @@ public final class SchematicBuilderModule extends Module {
             // verify + advance
             int placedInLayer = 0;
             for (BlockPlaceTask t : layerTasks) {
-                if (mc.level.getBlockState(t.worldPos).equals(t.state)) placedInLayer++;
+                if (matches(mc.level.getBlockState(t.worldPos), t.state)) placedInLayer++;
             }
             boolean advance;
             if (buildOrder.get() == BuildOrder.LAYERED) {
@@ -288,9 +324,34 @@ public final class SchematicBuilderModule extends Module {
 
         if (placeCooldown > 0) { placeCooldown--; return; }
 
+        // Server-ack verification: after a place click, wait for the block to actually appear in
+        // the world before counting it. A silent rejection (anti-cheat ate the packet) retries up
+        // to 3 times, then reports to FlagDetector and skips - no more ghost "placed" blocks.
+        if (verifyPos != null) {
+            BlockState now = mc.level.getBlockState(verifyPos);
+            if (!now.isAir() && !now.canBeReplaced()) {
+                placed.add(verifyPos);
+                verifyPos = null;
+                verifyRetries = 0;
+            } else if (--verifyTicks <= 0) {
+                if (++verifyRetries >= 3) {
+                    com.autism.seedcracker.modules.FlagDetectorModule.report(
+                        "place-fail", "SchematicBuilder", "server rejected placement at " + verifyPos + " 3x");
+                    verifyPos = null;
+                    verifyRetries = 0;
+                    layerIndex++; // skip this spot for now; the layer-end verify pass retries it
+                } else {
+                    layerIndex--; // re-run the task (bounded by verifyRetries)
+                    if (layerIndex < 0) layerIndex = 0;
+                    verifyPos = null;
+                }
+            }
+            return;
+        }
+
         BlockPlaceTask task = layerTasks.get(layerIndex);
         BlockState cur = mc.level.getBlockState(task.worldPos);
-        if (cur.equals(task.state)) {
+        if (matches(cur, task.state)) {
             placed.add(task.worldPos);
             layerIndex++;
             return;
@@ -367,9 +428,11 @@ public final class SchematicBuilderModule extends Module {
             com.autism.seedcracker.util.tunnel.SilentRotation.apply(rot[0], rot[1]);
         } else {
             com.autism.seedcracker.util.tunnel.SilentRotation.clear();
-            mc.player.setYRot(rot[0]);
-            mc.player.setXRot(net.minecraft.util.Mth.clamp(rot[1], -90f, 90f));
+            if (!com.autism.seedcracker.motion.RotationEngine.write(id(), com.autism.seedcracker.motion.RotationEngine.PRIORITY_INTERACT, rot[0], rot[1])) return;
         }
+        // Don't click until the eased aim has actually CONVERGED on the hit point - clicking
+        // mid-swing is the "interacted while looking elsewhere" rotation-checker flag.
+        if (!look.isRotationsDone()) return;
         if (mc.gameMode != null) {
             // Sneak when the support is a container (nyx ROTATE_SNEAK) or FaceScan says the click
             // would otherwise be eaten by the block's use action (levers, doors, etc).
@@ -379,13 +442,31 @@ public final class SchematicBuilderModule extends Module {
             com.autism.seedcracker.compat.McCompat.swing(mc.player, InteractionHand.MAIN_HAND);
             if (sneakForContainer) mc.options.keyShift.setDown(false);
         }
-        placed.add(task.worldPos);
+        // Don't trust the click: queue server-ack verification (block must appear within ~10t).
+        verifyPos = task.worldPos;
+        verifyTicks = 10;
         layerIndex++;
         pendingPlace = false;
         pendingSlot = -1;
         pendingHit = null;
         pendingSneak = false;
-        placeCooldown = placeDelay.get();
+        // Jittered + TPS-scaled: a constant N-tick place cadence is a printer signature.
+        placeCooldown = com.autism.seedcracker.util.Humanizer.delay(Math.max(1, placeDelay.get()));
+    }
+
+    /**
+     * Same block type counts as placed. Palettes load as default states and the click decides facing/axis/half,
+     * so an exact state compare never matched a stair, log or slab: the layer check kept failing and, with
+     * "Mine out wrong blocks" on, the builder dug out its own correct block and placed it again forever.
+     */
+    private static boolean matches(BlockState cur, BlockState want) {
+        return cur.is(want.getBlock());
+    }
+
+    /** Palette entry -> block; an unknown or malformed name is skipped (air) instead of failing the whole load. */
+    private static Block paletteBlock(CompoundTag entry) {
+        var id = net.minecraft.resources.Identifier.tryParse(entry.getStringOr("Name", "minecraft:air"));
+        return id == null ? Blocks.AIR : BuiltInRegistries.BLOCK.getOptional(id).orElse(Blocks.AIR);
     }
 
     /** Vanilla-ish reach: a bit more for targets above the head (you can reach up further). */
@@ -499,7 +580,7 @@ public final class SchematicBuilderModule extends Module {
         double dz = (target.getZ() + 0.5) - mc.player.getZ();
         float yaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
         float[] rot = look.update(yaw, 0f);
-        mc.player.setYRot(rot[0]);
+        com.autism.seedcracker.motion.RotationEngine.write(id(), com.autism.seedcracker.motion.RotationEngine.PRIORITY_MOVE, rot[0], mc.player.getXRot());
         mc.options.keyUp.setDown(true);
         if (mc.player.horizontalCollision && mc.player.onGround()) mc.options.keyJump.setDown(true);
         else mc.options.keyJump.setDown(false);
@@ -539,16 +620,16 @@ public final class SchematicBuilderModule extends Module {
             mc.player.getYRot() + (yaw - mc.player.getYRot()) * scale,
             mc.player.getXRot() + (pitch - mc.player.getXRot()) * scale);
         com.autism.seedcracker.util.tunnel.SilentRotation.clear();
-        mc.player.setYRot(rot[0]);
-        mc.player.setXRot(net.minecraft.util.Mth.clamp(rot[1], -90f, 90f));
+        if (!com.autism.seedcracker.motion.RotationEngine.write(id(), com.autism.seedcracker.motion.RotationEngine.PRIORITY_INTERACT, rot[0], rot[1])) return true;
         // Break whatever solid block the crosshair ray actually reports (real face).
         if (mc.hitResult instanceof BlockHitResult bhr
             && mc.hitResult.getType() == net.minecraft.world.phys.HitResult.Type.BLOCK) {
             BlockPos hitPos = bhr.getBlockPos();
             if (!mc.level.getBlockState(hitPos).isAir() && mc.gameMode != null) {
+                // Key only: vanilla's continueAttack already drives continueDestroyBlock + swing
+                // while the key is down; calling it here too doubled break progress per tick
+                // (fast-break flag risk, A15).
                 mc.options.keyAttack.setDown(true);
-                mc.gameMode.continueDestroyBlock(hitPos, bhr.getDirection());
-                com.autism.seedcracker.compat.McCompat.swing(mc.player, InteractionHand.MAIN_HAND);
             }
         }
         return true;
@@ -594,24 +675,30 @@ public final class SchematicBuilderModule extends Module {
         walkToward(mc, target);
     }
 
-    /** Place a temporary scaffold block under the next step if there's a gap. */
+    /** Place a temporary scaffold block under the next step if there's a gap. Aims with the
+     * eased engine at the REAL hit point and only places once converged (no snap-place). */
     private boolean tryScaffoldStep(Minecraft mc) {
         BlockPos feet = mc.player.blockPosition();
         BlockPos ahead = feet.relative(mc.player.getDirection());
         BlockPos floor = ahead.below();
         if (isSolid(mc, floor)) return false; // already a floor
         if (schematic.containsKey(toRel(floor))) return false; // don't overwrite schematic spots
+        if (!mc.player.onGround()) return true; // airborne: wait, don't scaffold mid-jump (Grim)
         int slot = findScaffoldSlot(mc);
         if (slot < 0) return false;
         // place on the side of an adjacent solid block
         BlockHitResult hit = findPlacementHit(mc, floor);
         if (hit == null) return false;
         com.autism.seedcracker.util.InvSync.select(mc, slot);
-        float[] rot = look.update(
-            (float) Math.toDegrees(Math.atan2(-(hit.getLocation().x - mc.player.getX()), hit.getLocation().z - mc.player.getZ())),
-            40f);
-        mc.player.setYRot(rot[0]);
-        mc.player.setXRot(net.minecraft.util.Mth.clamp(rot[1], -90f, 90f));
+        Vec3 eye = mc.player.getEyePosition();
+        Vec3 tgt = hit.getLocation();
+        double dx = tgt.x - eye.x, dy = tgt.y - eye.y, dz = tgt.z - eye.z;
+        float yaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
+        float pitch = (float) -Math.toDegrees(Math.atan2(dy, Math.hypot(dx, dz)));
+        float[] rot = look.update(yaw, pitch);
+        if (!com.autism.seedcracker.motion.RotationEngine.write(id(), com.autism.seedcracker.motion.RotationEngine.PRIORITY_INTERACT, rot[0], rot[1])) return true;
+        // Keep easing across ticks until converged; return true = "busy scaffolding, don't walk".
+        if (!look.isRotationsDone()) return true;
         if (mc.gameMode != null) {
             mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, hit);
             com.autism.seedcracker.compat.McCompat.swing(mc.player, InteractionHand.MAIN_HAND);
@@ -708,19 +795,29 @@ public final class SchematicBuilderModule extends Module {
             case OPENING -> {
                 if (mc.gui.screen() instanceof net.minecraft.client.gui.screens.inventory.AbstractContainerScreen<?>) {
                     restockState = RestockState.TAKING;
-                    restockDelay = chestDelay.get();
+                    restockDelay = com.autism.seedcracker.util.Humanizer.delay(chestDelay.get());
                     return;
                 }
-                // face + open the chest
-                float[] rot = look.update(
-                    (float) Math.toDegrees(Math.atan2(-(restockChest.getX() + 0.5 - mc.player.getX()), restockChest.getZ() + 0.5 - mc.player.getZ())), 10f);
-                mc.player.setYRot(rot[0]);
-                mc.player.setXRot(net.minecraft.util.Mth.clamp(rot[1], -90f, 90f));
+                // Face the chest with the eased engine at a raycast-visible point; only use once
+                // converged (fabricated centre-hit + instant aim was a rotation-checker flag).
+                Vec3 visible = com.autism.seedcracker.util.tunnel.LegitHitPoint.find(
+                    mc, restockChest, Direction.UP, MAX_REACH);
+                BlockHitResult chestHit = new BlockHitResult(
+                    visible != null ? visible : Vec3.atCenterOf(restockChest),
+                    Direction.UP, restockChest, false);
+                Vec3 eye = mc.player.getEyePosition();
+                Vec3 tgt = chestHit.getLocation();
+                double dx = tgt.x - eye.x, dy = tgt.y - eye.y, dz = tgt.z - eye.z;
+                float yaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
+                float pitch = (float) -Math.toDegrees(Math.atan2(dy, Math.hypot(dx, dz)));
+                float[] rot = look.update(yaw, pitch);
+                if (!com.autism.seedcracker.motion.RotationEngine.write(id(), com.autism.seedcracker.motion.RotationEngine.PRIORITY_INTERACT, rot[0], rot[1])) return;
+                if (!look.isRotationsDone()) return; // keep easing next tick
                 if (mc.gameMode != null) {
-                    mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND,
-                        new BlockHitResult(Vec3.atCenterOf(restockChest), Direction.UP, restockChest, false));
+                    mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, chestHit);
+                    com.autism.seedcracker.compat.McCompat.swing(mc.player, InteractionHand.MAIN_HAND);
                 }
-                restockDelay = chestDelay.get();
+                restockDelay = com.autism.seedcracker.util.Humanizer.delay(chestDelay.get());
             }
             case TAKING -> {
                 if (!(mc.gui.screen() instanceof net.minecraft.client.gui.screens.inventory.AbstractContainerScreen<?>)) {
@@ -812,7 +909,7 @@ public final class SchematicBuilderModule extends Module {
             if (mc.player.distanceToSqr(Vec3.atCenterOf(worldPos)) > 200.0 * 200.0) continue;
             AABB box = new AABB(worldPos);
             int y = e.getKey().getY();
-            boolean isPlaced = mc.level.getBlockState(worldPos).equals(e.getValue());
+            boolean isPlaced = matches(mc.level.getBlockState(worldPos), e.getValue());
             if (isPlaced) placedBoxes.add(box);
             else if (y == currentLayer) currentBoxes.add(box);
             else if (y < currentLayer) missedBoxes.add(box);
@@ -876,9 +973,7 @@ public final class SchematicBuilderModule extends Module {
         ListTag palette = nbt.getListOrEmpty("palette");
         BlockState[] states = new BlockState[palette.size()];
         for (int i = 0; i < palette.size(); i++) {
-            CompoundTag b = palette.getCompoundOrEmpty(i);
-            Block blk = BuiltInRegistries.BLOCK.getValue(net.minecraft.resources.Identifier.parse(b.getStringOr("Name", "minecraft:air")));
-            states[i] = blk != null ? blk.defaultBlockState() : Blocks.AIR.defaultBlockState();
+            states[i] = paletteBlock(palette.getCompoundOrEmpty(i)).defaultBlockState();
         }
         ListTag blocks = nbt.getListOrEmpty("blocks");
         trackMinMaxReset();
@@ -907,9 +1002,7 @@ public final class SchematicBuilderModule extends Module {
             ListTag palette = region.getListOrEmpty("BlockStatePalette");
             BlockState[] states = new BlockState[palette.size()];
             for (int i = 0; i < palette.size(); i++) {
-                CompoundTag b = palette.getCompoundOrEmpty(i);
-                Block blk = BuiltInRegistries.BLOCK.getValue(net.minecraft.resources.Identifier.parse(b.getStringOr("Name", "minecraft:air")));
-                states[i] = blk != null ? blk.defaultBlockState() : Blocks.AIR.defaultBlockState();
+                states[i] = paletteBlock(palette.getCompoundOrEmpty(i)).defaultBlockState();
             }
             long[] data = bsOpt.get();
             int bitsPer = ceilLog2(Math.max(2, palette.size()));

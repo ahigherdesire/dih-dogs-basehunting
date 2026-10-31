@@ -3,7 +3,7 @@ package com.autism.seedcracker.compat;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 
-import net.minecraft.client.renderer.rendertype.DihRenderTypes;
+import dihclient.render.mc.DihRenderTypes;
 import net.minecraft.client.renderer.rendertype.RenderType;
 
 /**

@@ -71,6 +71,23 @@ public final class McCompat {
         //?}
     }
 
+    public static net.minecraft.world.level.block.entity.SignText frontText(net.minecraft.world.level.block.entity.SignBlockEntity sign) {
+        //? if >=26.3 {
+        /*return sign.getText(net.minecraft.world.level.block.entity.SignTextSlot.FRONT);
+        *///?} else {
+        return sign.getFrontText();
+        //?}
+    }
+
+    /** False on 26.3, whose worldgen rewrite the seed-aware Chunk Finder scanner has not been ported to. */
+    public static boolean seedScannerAvailable() {
+        //? if >=26.3 {
+        /*return false;
+        *///?} else {
+        return true;
+        //?}
+    }
+
     /** Opens {@code uri} with the system handler (Util's platform on 26.2, Blaze3D on 26.3). */
     public static void openUri(URI uri) {
         //? if >=26.3 {

@@ -7,9 +7,10 @@
   "authors": [
     "doghero002-cmd",
     "KaptainWutax",
-    "19MisterX98"
+    "19MisterX98",
+    "cody-raves (Spectre modules)"
   ],
-  "license": "MIT",
+  "license": "GPL-3.0-only",
   "icon": "assets/seedcrackerx/icon.png",
   "custom": {
     "modmenu": {

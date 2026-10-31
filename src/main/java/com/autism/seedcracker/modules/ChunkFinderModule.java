@@ -1,436 +1,230 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Port of Spectre ChunkScannerModule, d5a7dd3de0be67bea273d4ed74d2c76c11e0f6da.
 package com.autism.seedcracker.modules;
 
-import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
-import java.util.List;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicInteger;
-
 import com.autism.seedcracker.SeedcrackerAddon;
 import com.autism.seedcracker.finder.ChunkFlagRenderer;
-
+import com.autism.seedcracker.finder.ChunkScanHelper;
+import com.autism.seedcracker.finder.FinderNotify;
+import com.autism.seedcracker.finder.FinderReport;
+import com.autism.seedcracker.finder.StoneStackScanner;
+import com.autism.seedcracker.spectre.chunks.seedscan.AdvancedScanner;
 import dihclient.api.module.BoolSetting;
 import dihclient.api.module.ColorSetting;
 import dihclient.api.module.IntSetting;
+import dihclient.api.module.StringSetting;
 import dihclient.modules.Module;
-import dihclient.util.DihClientMessaging;
-import com.autism.seedcracker.compat.ClientNotify;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
-import net.minecraft.sounds.SoundEvents;
-import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.ExperienceOrb;
-import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.network.protocol.Packet;
+import net.minecraft.network.protocol.game.ClientboundBlockUpdatePacket;
+import net.minecraft.network.protocol.game.ClientboundForgetLevelChunkPacket;
+import net.minecraft.network.protocol.game.ClientboundLevelChunkWithLightPacket;
+import net.minecraft.network.protocol.game.ClientboundSectionBlocksUpdatePacket;
 import net.minecraft.world.level.ChunkPos;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.block.state.properties.BlockStateProperties;
-import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.levelgen.WorldOptions;
 
-/**
- * Chunk Finder.
- *
- * Scans loaded chunks for several signs of player activity / modified terrain, and flags any
- * chunk that matches: rotated (player-placed) deepslate, unusually long dripstone or vines, kelp
- * that's all fully grown to the surface, diorite/granite/andesite "veins" enclosed in stone, and
- * long obsidian veins. Chunks with lots of dropped items or XP orbs (an active grinder/farm) are
- * skipped so it focuses on bases, not farms.
- *
- * Scanning runs on a background thread pool (chunk re-scans on an interval), so it stays cheap on
- * the render thread. Flagged chunks are drawn by the shared {@link ChunkFlagRenderer}.
- *
- * Port of the Xenon "ChunkFinder" module (multi-signal detector) to the AUTISM API (Mojang 26.2).
- */
 public final class ChunkFinderModule extends Module {
-
-    private static final int THREADS = Math.max(2, Runtime.getRuntime().availableProcessors() / 2);
-    private static final int MAX_CONCURRENT = 16;
-    private static final long RESCAN_MS = 5000L;
-
-    private final dihclient.api.module.EnumSetting<com.autism.seedcracker.finder.FinderSensitivity> sensitivity = add(
-        new dihclient.api.module.EnumSetting<>("sensitivity", "Sensitivity",
-            com.autism.seedcracker.finder.FinderSensitivity.HIGH, com.autism.seedcracker.finder.FinderSensitivity.values())
-        .description("Scales all signal thresholds: HIGH = shorter veins/fewer blocks flag (more noise), LOW = doubled (only unmistakable).")
-        .group("General"));
-    private final IntSetting scanRadius = add(new IntSetting(
-            "scan-radius", "Scan radius (chunks)", 6, 1, 12, 1)
-        .description("Chunk bubble around the player scanned.")
-        .group("General"));
-    private final IntSetting rotatedThreshold = add(new IntSetting(
-            "rotated-threshold", "Rotated deepslate", 1, 1, 20, 1)
-        .description("Rotated (player-placed) deepslate blocks needed to flag.")
-        .group("Signals"));
-    private final BoolSetting detectVeins = add(new BoolSetting(
-            "veins", "Diorite/obsidian veins", true)
-        .description("Flag enclosed diorite/granite/andesite + long obsidian veins.")
-        .group("Signals"));
-    private final BoolSetting detectGrowth = add(new BoolSetting(
-            "growth", "Long dripstone/vine + grown kelp", true)
-        .description("Flag unusually long dripstone/vines and fully-grown kelp.")
-        .group("Signals"));
-    private final BoolSetting detectGeode = add(new BoolSetting(
-            "geode", "Geode/bee anomalies", true)
-        .description("Flag 22+ budding amethyst or 10+ clusters (silk-touch moved geode / farm) and bee nests deep underground (moved with silk touch).")
-        .group("Signals"));
-    private final BoolSetting ignoreItemChunks = add(new BoolSetting(
-            "ignore-item-chunks", "Skip farm chunks (items/XP)", true)
-        .description("Skip chunks with many dropped items or XP orbs (active farms).")
-        .group("Signals"));
-    private final IntSetting maxItems = add(new IntSetting(
-            "max-items", "Max items", 3, 0, 100, 1)
-        .description("Dropped items in a chunk before it's treated as a farm and skipped.")
-        .group("Signals"));
-    private final IntSetting maxXP = add(new IntSetting(
-            "max-xp", "Max XP orbs", 3, 0, 100, 1)
-        .description("XP orbs in a chunk before it's treated as a farm and skipped.")
-        .group("Signals"));
-    private final BoolSetting ignorePlayerChunk = add(new BoolSetting(
-            "ignore-player-chunk", "Ignore own chunk", true)
-        .description("Don't flag the chunk you're standing in.")
-        .group("Signals"));
-    private final BoolSetting tracer = add(new BoolSetting(
-            "tracer", "Tracer", true)
-        .description("Draw a tracer line from the camera to each flagged chunk.")
-        .group("Render"));
-    private final ColorSetting color = add(new ColorSetting(
-            "color", "Chunk colour", 0xFF0A822D)
-        .description("Colour of the flagged chunk marker.")
-        .group("Render"));
-    private final BoolSetting notify = add(new BoolSetting(
-            "notification", "Notification", true)
-        .description("Toast + chat ping when a suspicious chunk is found.")
-        .group("General"));
-
-    private final Set<ChunkPos> flagged = ConcurrentHashMap.newKeySet();
-    private final Set<ChunkPos> notified = ConcurrentHashMap.newKeySet();
-    private final Map<ChunkPos, Long> scannedAt = new ConcurrentHashMap<>();
-    private final Map<ChunkPos, Integer> itemCounts = new ConcurrentHashMap<>();
-    private final Map<ChunkPos, Integer> xpCounts = new ConcurrentHashMap<>();
-    private final AtomicInteger activeScans = new AtomicInteger(0);
-    private ExecutorService pool;
-    private volatile boolean scanning = false;
-    private int tickCounter = 0;
-    /** Round-robin dispatch offset: iterating from -radius every dispatch starved far chunks
-     * (same class of bug as the SusChunk fixed-corner scan). Advances each dispatch. */
-    private int scanOffset = 0;
+    private final IntSetting radius = add(new IntSetting("scan-radius", "Scan radius", 12, 1, 32, 1).group("Performance"));
+    private final IntSetting budget = add(new IntSetting("chunks-per-tick", "Chunks per tick", 2, 1, 128, 1).group("Performance"));
+    private final BoolSetting advancedMode = add(new BoolSetting("advanced-scanner", "Seed-aware scanner", false).group("Detection")
+        .visibleWhen(com.autism.seedcracker.compat.McCompat::seedScannerAvailable));
+    private final StringSetting seed = add(new StringSetting("seed", "World seed", "")
+        .description("Vanilla Overworld prediction, within 8 chunks and +/-250,000 blocks. Seed mismatches stop predictions.")
+        .group("Detection").visibleWhen(advancedMode::get));
+    private final IntSetting height = add(new IntSetting("stack-height", "Stack height", 2, 2, 5, 1).group("Detection").visibleWhen(() -> !advancedMode.get()));
+    private final IntSetting spread = add(new IntSetting("spread-radius", "Spread radius", 1, 0, 16, 1).group("Detection"));
+    private final BoolSetting notify = add(new BoolSetting("notification", "Notification", true).group("Alerts"));
+    private final BoolSetting sound = add(new BoolSetting("sound", "Sound", true).group("Alerts").visibleWhen(notify::get));
+    private final BoolSetting tracer = add(new BoolSetting("tracer", "Tracer", true).group("Render"));
+    private final ColorSetting color = add(new ColorSetting("color", "Chunk colour", 0x6100FFFF).group("Render"));
+    private final Map<ChunkPos, Integer> scanned = new HashMap<>();
+    private final Set<ChunkPos> notified = new HashSet<>();
+    private final LinkedHashSet<ChunkPos> queue = new LinkedHashSet<>();
+    private final FinderReport reporter = new FinderReport("Chunk", 55);
+    private ClientLevel world;
+    private int ticks, seedStill;
+    private String seedText;
+    private boolean seedAsked;
+    private StoneStackScanner active;
+    private ChunkPos activePos;
+    private AdvancedScanner advanced, closing;
+    private Set<ChunkPos> flagged = Set.of();
+    private final Set<ChunkPos> probed = new HashSet<>();
+    private java.lang.ref.WeakReference<net.minecraft.client.multiplayer.ClientPacketListener> probeServer = new java.lang.ref.WeakReference<>(null);
+    private static final net.minecraft.core.Direction[] SIDES = net.minecraft.core.Direction.values();
+    private boolean probing, sawBlob;
 
     public ChunkFinderModule() {
         super(SeedcrackerAddon.ID + ":z-chunk-finder", "Chunk Finder",
-            "Flags chunks with base signs (rotated deepslate, long dripstone/vines, grown kelp, veins).");
+            "Spectre stone-stack and seed-aware blob checks. Candidates, not confirmed bases.");
     }
 
-    @Override
-    public void onEnable() {
-        flagged.clear();
-        notified.clear();
-        scannedAt.clear();
-        itemCounts.clear();
-        xpCounts.clear();
-        activeScans.set(0);
-        tickCounter = 0;
-        scanning = true;
-        pool = Executors.newFixedThreadPool(THREADS, r -> {
-            Thread t = new Thread(r, "ChunkFinder-Scan");
-            t.setDaemon(true);
-            return t;
-        });
+    private void reset(ClientLevel level) {
+        if (advanced != null) { advanced.close(); closing = advanced; advanced = null; }
+        scanned.clear(); notified.clear(); queue.clear(); reporter.clear();
+        active = null; activePos = null; flagged = Set.of(); ticks = 0;
+        seedText = null; seedStill = 0; seedAsked = false; world = level;
+        var connection = Minecraft.getInstance().getConnection();
+        if (level == null) { probed.clear(); probing = false; probeServer.clear(); }
+        if (level != null && connection != probeServer.get()) {
+            probeServer = new java.lang.ref.WeakReference<>(connection); probing = true; probed.clear();
+        }
+        ChunkFlagRenderer.clear(id());
     }
 
-    @Override
-    public void onDisable() {
-        scanning = false;
-        if (pool != null) { pool.shutdownNow(); pool = null; }
-        flagged.clear();
-        notified.clear();
-        scannedAt.clear();
-        ChunkFlagRenderer.clear(SeedcrackerAddon.ID + ":z-chunk-finder");
+    @Override public void onEnable() { reset(Minecraft.getInstance().level); ChunkFlagRenderer.init(); }
+    @Override public void onDisable() { reset(null); }
+    @Override public void onGameLeft() {
+        reset(null);
+        if (com.autism.seedcracker.util.RelogPersistence.shouldDisableOnGameLeft()) setEnabledSilently(false);
+    }
+    @Override protected void onSettingsReset() { reset(isEnabled() ? Minecraft.getInstance().level : null); }
+    @Override protected void onOptionValueChanged(String settingId) {
+        if ("advanced-scanner".equals(settingId) || "stack-height".equals(settingId)) reset(isEnabled() ? Minecraft.getInstance().level : null);
     }
 
-    @Override
-    public void onGameLeft() { if (com.autism.seedcracker.util.RelogPersistence.shouldDisableOnGameLeft()) setEnabledSilently(false);
-    }
-
-    @Override
-    public void tick() {
+    /** ClientPacketListener TAIL hook, after vanilla has applied chunk/block data. */
+    public void onPacketApplied(ClientLevel level, Packet<?> packet) {
         Minecraft mc = Minecraft.getInstance();
-        if (mc.level == null || mc.player == null) return;
-
-        // Refresh entity activity counts each tick (cheap).
-        if (ignoreItemChunks.get()) {
-            itemCounts.clear();
-            xpCounts.clear();
-            for (Entity e : mc.level.entitiesForRendering()) {
-                if (e instanceof ItemEntity) itemCounts.merge(e.chunkPosition(), 1, Integer::sum);
-                else if (e instanceof ExperienceOrb) xpCounts.merge(e.chunkPosition(), 1, Integer::sum);
-            }
-        }
-
-        tickCounter++;
-        if (tickCounter % 6 == 0) {
-            dispatchScans(mc);
-        }
-        ChunkFlagRenderer.feed(SeedcrackerAddon.ID + ":z-chunk-finder", flagged, color.get(), tracer.get());
+        if (!isEnabled() || !mc.isSameThread() || level == null || level != mc.level) return;
+        if (level != world) reset(level);
+        if (packet instanceof ClientboundLevelChunkWithLightPacket chunk) {
+            if (advanced != null) advanced.chunkArrived(chunk.getX(), chunk.getZ());
+            for (int dx = -1; dx <= 1; dx++) for (int dz = -1; dz <= 1; dz++) enqueue(new ChunkPos(chunk.getX() + dx, chunk.getZ() + dz));
+        } else if (packet instanceof ClientboundForgetLevelChunkPacket forget) {
+            ChunkPos pos = forget.pos();
+            scanned.remove(pos); notified.remove(pos); queue.remove(pos);
+            if (pos.equals(activePos)) { active = null; activePos = null; }
+            if (advanced != null) advanced.chunkArrived(pos.x(), pos.z());
+        } else if (packet instanceof ClientboundBlockUpdatePacket block) blockChanged(block.getPos());
+        else if (packet instanceof ClientboundSectionBlocksUpdatePacket section) section.runUpdates((pos, state) -> blockChanged(pos));
     }
 
-    /** Queue background scans for in-range chunks that are due a (re)scan. */
-    private void dispatchScans(Minecraft mc) {
-        if (!scanning || pool == null) return;
-        int radius = scanRadius.get();
-        ChunkPos center = mc.player.chunkPosition();
-        long now = System.currentTimeMillis();
-
-        int side = radius * 2 + 1;
-        int total = side * side;
-        for (int i = 0; i < total; i++) {
-            int idx = (scanOffset + i) % total;
-            int dx = idx % side - radius;
-            int dz = idx / side - radius;
-            int cx = center.x() + dx;
-            int cz = center.z() + dz;
-            if (!mc.level.hasChunk(cx, cz)) continue;
-            ChunkPos pos = new ChunkPos(cx, cz);
-            Long last = scannedAt.get(pos);
-            if (last != null && now - last < RESCAN_MS) continue;
-            if (activeScans.get() >= MAX_CONCURRENT) break;
-
-            scannedAt.put(pos, now);
-            LevelChunk chunk = mc.level.getChunk(cx, cz);
-            activeScans.incrementAndGet();
-            pool.submit(() -> {
-                try {
-                    analyzeChunk(mc, chunk, pos, center);
-                } catch (Throwable ignored) {
-                } finally {
-                    activeScans.decrementAndGet();
-                }
-            });
-        }
-        scanOffset = (scanOffset + 1) % total;
+    private void blockChanged(BlockPos pos) {
+        if (advanced != null) advanced.blockChanged(pos);
+        if (pos.getY() < -1 || pos.getY() > 33) return;
+        for (int cx = (pos.getX() - 2) >> 4; cx <= (pos.getX() + 2) >> 4; cx++)
+            for (int cz = (pos.getZ() - 2) >> 4; cz <= (pos.getZ() + 2) >> 4; cz++) enqueue(new ChunkPos(cx, cz));
     }
 
-    private static final class Analysis {
-        int rotated = 0;
-        int budding = 0, clusters = 0, deepBees = 0;
-        boolean longDripstone, longVine, grownKelp, dioriteVein, obsidianVein;
-        BlockPos susPos;
+    private boolean nearby(ChunkPos pos) {
+        var player = Minecraft.getInstance().player;
+        return player != null && distance(player.chunkPosition(), pos) <= radius.get()
+            && world != null && world.getChunkSource().getChunkNow(pos.x(), pos.z()) != null;
     }
 
-    /** Single-pass chunk scan for all the detection signals. Runs off-thread. */
-    private void analyzeChunk(Minecraft mc, LevelChunk chunk, ChunkPos pos, ChunkPos playerChunk) {
-        if (!scanning || mc.level == null) return;
-        if (ignorePlayerChunk.get() && pos.equals(playerChunk)) return;
-        if (ignoreItemChunks.get()) {
-            if (itemCounts.getOrDefault(pos, 0) > maxItems.get()) return;
-            if (xpCounts.getOrDefault(pos, 0) > maxXP.get()) return;
-        }
-
-        int startX = pos.getMinBlockX();
-        int startZ = pos.getMinBlockZ();
-        int minY = mc.level.getMinY();
-        int maxY = mc.level.getMaxY() - 1;
-        Analysis a = new Analysis();
-        Set<Long> veinVisited = new HashSet<>();
-        Set<Long> obsidianVisited = new HashSet<>();
-        Set<Long> vineTops = new HashSet<>();
-        Set<Long> kelpBases = new HashSet<>();
-        int kelpPlants = 0, fullKelp = 0;
-        BlockPos firstKelp = null;
-        BlockPos.MutableBlockPos m = new BlockPos.MutableBlockPos();
-
-        for (int x = 0; x < 16; x++) {
-            for (int z = 0; z < 16; z++) {
-                for (int y = minY; y <= maxY; y++) {
-                    if (!scanning) return;
-                    m.set(startX + x, y, startZ + z);
-                    BlockState state = chunk.getBlockState(m);
-
-                    // Rotated deepslate (player-placed) at Y 0..16.
-                    if (y >= 0 && y <= 16 && state.is(Blocks.DEEPSLATE) && state.hasProperty(BlockStateProperties.AXIS)) {
-                        if (state.getValue(BlockStateProperties.AXIS) != Direction.Axis.Y) {
-                            a.rotated++;
-                            if (a.susPos == null) a.susPos = m.immutable();
-                        }
-                    }
-
-                    // Geode anomalies (Water ChunkFinderV2): budding amethyst / cluster density,
-                    // plus bee nests deep underground (only get there via silk touch).
-                    if (detectGeode.get()) {
-                        if (state.is(Blocks.BUDDING_AMETHYST)) {
-                            a.budding++;
-                            if (a.susPos == null) a.susPos = m.immutable();
-                        } else if (state.is(Blocks.AMETHYST_CLUSTER)) {
-                            a.clusters++;
-                            if (a.susPos == null) a.susPos = m.immutable();
-                        } else if (y <= 40 && (state.is(Blocks.BEE_NEST) || state.is(Blocks.BEEHIVE))) {
-                            a.deepBees++;
-                            if (a.susPos == null) a.susPos = m.immutable();
-                        }
-                    }
-
-                    // Diorite/granite/andesite vein enclosed in stone (length >= 5, sensitivity-scaled).
-                    if (detectVeins.get() && !a.dioriteVein && isStoneOre(state)) {
-                        long key = m.asLong();
-                        if (!veinVisited.contains(key)) {
-                            BlockPos imm = m.immutable();
-                            int total = 1 + countRun(mc, imm, Direction.UP, this::isStoneOre) + countRun(mc, imm, Direction.DOWN, this::isStoneOre);
-                            if (total >= sensitivity.get().scale(5)) {
-                                BlockPos start = imm.below(countRun(mc, imm, Direction.DOWN, this::isStoneOre));
-                                boolean enclosed = true;
-                                for (int i = 0; i < total; i++) {
-                                    BlockPos bp = start.above(i);
-                                    veinVisited.add(bp.asLong());
-                                    if (!enclosedBy(mc, bp, Blocks.STONE)) enclosed = false;
-                                }
-                                if (enclosed) { a.dioriteVein = true; if (a.susPos == null) a.susPos = imm; }
-                            }
-                        }
-                    }
-
-                    // Obsidian vein (length >= 15, Y 15..63) enclosed by non-obsidian.
-                    if (detectVeins.get() && !a.obsidianVein && y >= 15 && y <= 63 && state.is(Blocks.OBSIDIAN)) {
-                        long key = m.asLong();
-                        if (!obsidianVisited.contains(key)) {
-                            BlockPos imm = m.immutable();
-                            java.util.function.Predicate<BlockState> isObs = s -> s.is(Blocks.OBSIDIAN);
-                            int total = 1 + countRun(mc, imm, Direction.UP, isObs) + countRun(mc, imm, Direction.DOWN, isObs);
-                            if (total >= sensitivity.get().scale(15)) {
-                                BlockPos start = imm.below(countRun(mc, imm, Direction.DOWN, isObs));
-                                boolean enclosed = true;
-                                for (int i = 0; i < total; i++) {
-                                    BlockPos bp = start.above(i);
-                                    obsidianVisited.add(bp.asLong());
-                                    if (!enclosedByNot(mc, bp, Blocks.OBSIDIAN)) enclosed = false;
-                                }
-                                if (enclosed) { a.obsidianVein = true; if (a.susPos == null) a.susPos = imm; }
-                            }
-                        }
-                    }
-
-                    // Long dripstone (>= 12) - top piece of a stalactite.
-                    if (detectGrowth.get() && !a.longDripstone && state.is(Blocks.POINTED_DRIPSTONE)
-                        && state.hasProperty(BlockStateProperties.VERTICAL_DIRECTION)
-                        && state.getValue(BlockStateProperties.VERTICAL_DIRECTION) == Direction.DOWN) {
-                        if (!mc.level.getBlockState(m.above()).is(Blocks.POINTED_DRIPSTONE)) {
-                            int len = 1;
-                            BlockPos cur = m.below();
-                            while (len < 63 && mc.level.getBlockState(cur).is(Blocks.POINTED_DRIPSTONE)
-                                && mc.level.getBlockState(cur).getValue(BlockStateProperties.VERTICAL_DIRECTION) == Direction.DOWN) {
-                                len++;
-                                cur = cur.below();
-                            }
-                            if (len >= sensitivity.get().scale(12)) { a.longDripstone = true; if (a.susPos == null) a.susPos = m.immutable(); }
-                        }
-                    }
-
-                    // Long vine (>= 8, Y >= 40) - top piece.
-                    if (detectGrowth.get() && !a.longVine && y >= 40 && state.is(Blocks.VINE)) {
-                        long key = m.asLong();
-                        if (!vineTops.contains(key) && !mc.level.getBlockState(m.above()).is(Blocks.VINE)) {
-                            vineTops.add(key);
-                            int len = 1;
-                            BlockPos cur = m.below();
-                            while (mc.level.getBlockState(cur).is(Blocks.VINE)) { len++; cur = cur.below(); }
-                            if (len >= sensitivity.get().scale(8)) { a.longVine = true; if (a.susPos == null) a.susPos = m.immutable(); }
-                        }
-                    }
-
-                    // Grown kelp (>= 4 kelp plants that all reach the surface).
-                    if (detectGrowth.get() && (state.is(Blocks.KELP) || state.is(Blocks.KELP_PLANT))) {
-                        long key = m.asLong();
-                        if (!kelpBases.contains(key)) {
-                            BlockState below = mc.level.getBlockState(m.below());
-                            if (!below.is(Blocks.KELP) && !below.is(Blocks.KELP_PLANT)) {
-                                kelpBases.add(key);
-                                if (firstKelp == null) firstKelp = m.immutable();
-                                BlockPos cur = m.above();
-                                boolean reachedSurface = false;
-                                while (cur.getY() <= maxY) {
-                                    BlockState cs = mc.level.getBlockState(cur);
-                                    if (cs.is(Blocks.KELP) || cs.is(Blocks.KELP_PLANT)) { cur = cur.above(); continue; }
-                                    if (cs.getFluidState().isEmpty()) reachedSurface = true;
-                                    break;
-                                }
-                                kelpPlants++;
-                                if (reachedSurface) fullKelp++;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        if (kelpPlants >= 4 && kelpPlants == fullKelp) {
-            a.grownKelp = true;
-            if (a.susPos == null) a.susPos = firstKelp;
-        }
-
-        evaluate(mc, pos, a);
+    private void enqueue(ChunkPos pos) {
+        if (!advancedMode.get() && nearby(pos) && queue.size() < 4225) queue.add(pos);
     }
 
-    private void evaluate(Minecraft mc, ChunkPos pos, Analysis a) {
-        List<String> reasons = new ArrayList<>();
-        if (a.rotated >= sensitivity.get().scale(rotatedThreshold.get())) reasons.add("Rotated:" + a.rotated);
-        if (a.longDripstone) reasons.add("LongDripstone");
-        if (a.longVine) reasons.add("LongVine");
-        if (a.grownKelp) reasons.add("GrownKelp");
-        if (a.dioriteVein) reasons.add("DioriteVein");
-        if (a.obsidianVein) reasons.add("ObsidianVein");
-        if (detectGeode.get()) {
-            if (a.budding >= sensitivity.get().scale(22)) reasons.add("Budding:" + a.budding);
-            if (a.clusters >= sensitivity.get().scale(10)) reasons.add("Clusters:" + a.clusters);
-            if (a.deepBees >= 1) reasons.add("DeepBees:" + a.deepBees);
-        }
+    private static int distance(ChunkPos a, ChunkPos b) { return Math.max(Math.abs(a.x() - b.x()), Math.abs(a.z() - b.z())); }
 
-        if (!reasons.isEmpty()) {
-            if (flagged.add(pos) && notified.add(pos)) {
-                int x = a.susPos != null ? a.susPos.getX() : pos.getMinBlockX() + 8;
-                int z = a.susPos != null ? a.susPos.getZ() : pos.getMinBlockZ() + 8;
-                String r = String.join(" ", reasons);
-                mc.execute(() -> onNewFlag(pos, r, x, z));
-            }
-        }
-    }
-
-    private boolean isStoneOre(BlockState s) {
-        return s.is(Blocks.DIORITE) || s.is(Blocks.GRANITE) || s.is(Blocks.ANDESITE);
-    }
-
-    private int countRun(Minecraft mc, BlockPos from, Direction dir, java.util.function.Predicate<BlockState> pred) {
-        int count = 0;
-        BlockPos.MutableBlockPos m = from.mutable();
-        while (count <= 20) {
-            m.move(dir);
-            if (!pred.test(mc.level.getBlockState(m))) break;
-            count++;
-        }
-        return count;
-    }
-
-    private boolean enclosedBy(Minecraft mc, BlockPos pos, net.minecraft.world.level.block.Block block) {
-        for (Direction d : new Direction[]{Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST}) {
-            if (!mc.level.getBlockState(pos.relative(d)).is(block)) return false;
-        }
-        return true;
-    }
-
-    private boolean enclosedByNot(Minecraft mc, BlockPos pos, net.minecraft.world.level.block.Block block) {
-        for (Direction d : new Direction[]{Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST}) {
-            if (mc.level.getBlockState(pos.relative(d)).is(block)) return false;
-        }
-        return true;
-    }
-
-    private void onNewFlag(ChunkPos pos, String reasons, int x, int z) {
-        if (!notify.get()) return;
-        String msg = reasons + " (X:" + x + " Z:" + z + ")";
-        ClientNotify.warning("Chunk: " + msg);
-        DihClientMessaging.sendPrefixed("§6[ChunkFinder] §f" + msg);
+    @Override public void tick() {
         Minecraft mc = Minecraft.getInstance();
-        if (mc.player != null) mc.player.playSound(SoundEvents.EXPERIENCE_ORB_PICKUP, 1.0f, 0.9f);
+        if (world != mc.level) reset(mc.level);
+        if (closing != null && closing.stopped()) closing = null;
+        if (world == null || mc.player == null) return;
+        if (!world.dimension().equals(Level.OVERWORLD)
+            && !world.dimensionTypeRegistration().is(net.minecraft.world.level.dimension.BuiltinDimensionTypes.OVERWORLD)) {
+            if (!scanned.isEmpty() || advanced != null) reset(world);
+            ChunkFlagRenderer.clear(id()); return;
+        }
+        if (ticks++ % 20 == 0) {
+            scanned.keySet().removeIf(pos -> !nearby(pos));
+            notified.removeIf(pos -> !nearby(pos));
+            queue.removeIf(pos -> !nearby(pos));
+            if (!advancedMode.get()) {
+                var loaded = ChunkScanHelper.loadedChunksAround(mc, radius.get());
+                loaded.sort(Comparator.comparingInt(chunk -> distance(mc.player.chunkPosition(), chunk.getPos())));
+                for (var chunk : loaded) if (!scanned.containsKey(chunk.getPos())) enqueue(chunk.getPos());
+            }
+        }
+        long deadline = System.nanoTime() + 3_000_000L;
+        if (advancedMode.get()) tickAdvanced(deadline);
+        else {
+            int completed = 0;
+            while (completed < budget.get() && System.nanoTime() < deadline) {
+                if (active == null) {
+                    if (queue.isEmpty()) break;
+                    activePos = queue.removeFirst();
+                    if (!nearby(activePos)) continue;
+                    sawBlob = false;
+                    active = new StoneStackScanner(activePos, height.get(), this::sampleState);
+                }
+                if (!nearby(activePos)) { active = null; activePos = null; continue; }
+                if (!active.step(deadline)) break;
+                if (active.complete()) scanned.put(activePos, active.stacks().size());
+                if (probing && sawBlob && probed.add(activePos) && probed.size() >= 48) {
+                    probing = false; probed.clear();
+                    FinderNotify.flag("[Chunk Finder]", "Enclosed blobs were not visible in 48 samples. Anti-xray may hide patched shafts here.", false);
+                }
+                active = null; activePos = null; completed++;
+            }
+        }
+        var heat = StoneStackScanner.spreadHeat(scanned, mc.player.chunkPosition(), radius.get(), spread.get());
+        heat.keySet().removeIf(pos -> !nearby(pos));
+        flagged = spread.get() == 0 ? Set.copyOf(heat.keySet()) : StoneStackScanner.hottest(heat);
+        for (ChunkPos pos : flagged) if (notified.add(pos) && notify.get())
+            FinderNotify.flag("[Chunk Finder]", "Possible modified terrain at X:" + pos.getMinBlockX() + " Z:" + pos.getMinBlockZ(), sound.get());
+        ChunkFlagRenderer.feed(id(), flagged, color.get(), tracer.get());
+        reporter.tick(mc, flagged);
     }
+
+    private net.minecraft.world.level.block.state.BlockState sampleState(BlockPos pos) {
+        var chunk = world.getChunkSource().getChunkNow(pos.getX() >> 4, pos.getZ() >> 4);
+        if (chunk == null) return null;
+        var state = chunk.getBlockState(pos);
+        if (probing && pos.getY() >= 0 && pos.getY() <= 32 && (state.is(net.minecraft.world.level.block.Blocks.DIORITE)
+            || state.is(net.minecraft.world.level.block.Blocks.GRANITE) || state.is(net.minecraft.world.level.block.Blocks.ANDESITE)
+            || state.is(net.minecraft.world.level.block.Blocks.GRAVEL))) {
+            sawBlob = true;
+            boolean enclosed = true;
+            for (var side : SIDES) {
+                var adjacent = pos.relative(side); var neighbor = world.getChunkSource().getChunkNow(adjacent.getX() >> 4, adjacent.getZ() >> 4);
+                if (neighbor == null || !neighbor.getBlockState(adjacent).isSolidRender()) { enclosed = false; break; }
+            }
+            if (enclosed) { probing = false; probed.clear(); }
+        }
+        return state;
+    }
+
+    private void tickAdvanced(long deadline) {
+        String text = seed.get().strip();
+        if (!text.equals(seedText)) {
+            seedText = text; seedStill = 0; seedAsked = false; scanned.clear(); notified.clear();
+            if (advanced != null) { advanced.close(); closing = advanced; advanced = null; }
+        }
+        if (seedStill < 20) { seedStill++; return; }
+        var wanted = WorldOptions.parseSeed(text);
+        if (wanted.isEmpty()) {
+            if (advanced != null) { advanced.close(); closing = advanced; advanced = null; }
+            scanned.clear();
+            if (!seedAsked) { FinderNotify.flag("[Chunk Finder]", "Seed-aware scanning needs the world seed; no prediction is being made.", false); seedAsked = true; }
+            return;
+        }
+        if (advanced != null && advanced.seed() != wanted.getAsLong()) {
+            advanced.close(); closing = advanced; advanced = null; scanned.clear();
+        }
+        if (advanced == null && closing == null) advanced = AdvancedScanner.start(wanted.getAsLong());
+        if (advanced == null) return;
+        for (var result : advanced.tick(world, deadline, Math.min(radius.get(), 8), budget.get())) {
+            var pos = new ChunkPos(ChunkPos.getX(result.chunk()), ChunkPos.getZ(result.chunk()));
+            if (nearby(pos)) scanned.put(pos, result.anchors().length);
+        }
+        if (!advanced.trusted()) scanned.clear();
+        for (String notice : advanced.drainNotices()) FinderNotify.flag("[Chunk Finder]", notice, false);
+    }
+
+    // API v3 only has a module-wide share guard; the seed was a private value upstream.
+    @Override public boolean settingsShareable() { return false; }
+    @Override public String info() { return flagged.size() + (advancedMode.get() ? " seed candidates" : " stack candidates"); }
 }
